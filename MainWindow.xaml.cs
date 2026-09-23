@@ -907,21 +907,13 @@ namespace IrisPxS
             int dx = isVertical ? 0 : delta;
             int dy = isVertical ? delta : 0;
 
-            if (ScanCanvas.SelectedFrame != null)
+            // ユーザー要望: コマ位置微調整は適用されている全コマを同時に移動
+            ScanCanvas.NudgeAllFrames(dx, dy);
+            foreach (var f in _currentRoll.AllFrames)
             {
-                ScanCanvas.NudgeSelectedFrame(dx, dy);
-                UpdateFrameThumbnail(ScanCanvas.SelectedFrame);
-                if (RbViewSingle.IsChecked == true) UpdateSingleFramePreview();
+                UpdateFrameThumbnail(f);
             }
-            else
-            {
-                ScanCanvas.NudgeAllFrames(dx, dy);
-                foreach (var f in _currentRoll.AllFrames)
-                {
-                    UpdateFrameThumbnail(f);
-                }
-                if (RbViewSingle.IsChecked == true) UpdateSingleFramePreview();
-            }
+            if (RbViewSingle?.IsChecked == true) UpdateSingleFramePreview();
         }
 
         private void SliderCropInset_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)

@@ -523,14 +523,8 @@ namespace IrisPxS.Controls
 
             e.Handled = true;
 
-            if (Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl))
-            {
-                NudgeAllFrames(dx, dy);
-            }
-            else
-            {
-                NudgeSelectedFrame(dx, dy);
-            }
+            // ユーザー要望: コマ位置微調整は適用されている全コマを同時に移動
+            NudgeAllFrames(dx, dy);
         }
 
         /// <summary>
