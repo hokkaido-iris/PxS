@@ -218,16 +218,29 @@ namespace IrisPxS.Services
 
         /// <summary>
         /// スキャン画像を傾き角 skewAngle に応じて正立（回転補正）する
+        /// 回転ではみ出た領域も一切クリップせず、全領域を包含する新しいサイズへ拡張
         /// </summary>
         public Mat StraightenImage(Mat src, double skewAngle)
         {
             if (Math.Abs(skewAngle) < 0.05) return src.Clone();
 
+            double rad = Math.Abs(skewAngle) * Math.PI / 180.0;
+            double sin = Math.Sin(rad);
+            double cos = Math.Cos(rad);
+
+            int newW = (int)Math.Ceiling(src.Width * cos + src.Height * sin);
+            int newH = (int)Math.Ceiling(src.Width * sin + src.Height * cos);
+
             var center = new Point2f(src.Width / 2.0f, src.Height / 2.0f);
             using var rotMat = Cv2.GetRotationMatrix2D(center, -skewAngle, 1.0);
 
+            // 拡張キャンバスの中央へ平行移動オフセットを加算
+            rotMat.Set(0, 2, rotMat.At<double>(0, 2) + (newW - src.Width) / 2.0);
+            rotMat.Set(1, 2, rotMat.At<double>(1, 2) + (newH - src.Height) / 2.0);
+
             var dst = new Mat();
-            Cv2.WarpAffine(src, dst, rotMat, src.Size(), InterpolationFlags.Cubic, BorderTypes.Replicate);
+            // 余白は透過スキャナーの素抜けガラス色（白色: 255, 255, 255）でパディング
+            Cv2.WarpAffine(src, dst, rotMat, new OpenCvSharp.Size(newW, newH), InterpolationFlags.Cubic, BorderTypes.Constant, new Scalar(255, 255, 255));
             return dst;
         }
 

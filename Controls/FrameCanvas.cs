@@ -61,6 +61,16 @@ namespace IrisPxS.Controls
             set => SetValue(SelectedFrameProperty, value);
         }
 
+        public static readonly DependencyProperty IsDragEnabledProperty =
+            DependencyProperty.Register(nameof(IsDragEnabled), typeof(bool), typeof(FrameCanvas),
+                new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.AffectsRender));
+
+        public bool IsDragEnabled
+        {
+            get => (bool)GetValue(IsDragEnabledProperty);
+            set => SetValue(IsDragEnabledProperty, value);
+        }
+
         public bool IsEyedropperMode { get; set; } = false;
 
         public event EventHandler<(byte R, byte G, byte B)>? ColorPicked;
@@ -201,8 +211,8 @@ namespace IrisPxS.Controls
 
             dc.DrawText(text, new Point(badgeRect.X + (badgeRect.Width - text.Width) / 2, badgeRect.Y + (badgeRect.Height - text.Height) / 2));
 
-            // 選択時の8ハンドル描画
-            if (isSelected)
+            // 選択時の8ハンドル描画 (マウスドラッグ有効時のみ表示)
+            if (isSelected && IsDragEnabled)
             {
                 DrawHandles(dc, screenRect);
             }
@@ -256,8 +266,8 @@ namespace IrisPxS.Controls
 
             if (e.ChangedButton == MouseButton.Left && Frames != null)
             {
-                // まず選択枠のハンドル上かチェック
-                if (SelectedFrame != null)
+                // まず選択枠のハンドル上かチェック (マウスドラッグ有効時のみ)
+                if (IsDragEnabled && SelectedFrame != null)
                 {
                     int handle = HitTestHandles(pos, SelectedFrame);
                     if (handle >= 0)
@@ -285,10 +295,18 @@ namespace IrisPxS.Controls
                 {
                     SelectedFrame = hitFrame;
                     FrameSelected?.Invoke(this, hitFrame);
-                    _resizeHandle = 0; // 移動モード
-                    _draggedFrame = hitFrame;
-                    _dragStartPos = pos;
-                    _initialRect = hitFrame.CropRect;
+                    if (IsDragEnabled)
+                    {
+                        _resizeHandle = 0; // 移動モード
+                        _draggedFrame = hitFrame;
+                        _dragStartPos = pos;
+                        _initialRect = hitFrame.CropRect;
+                    }
+                    else
+                    {
+                        _resizeHandle = -1;
+                        _draggedFrame = null;
+                    }
                     InvalidateVisual();
                     return;
                 }
@@ -315,7 +333,7 @@ namespace IrisPxS.Controls
                 return;
             }
 
-            if (_draggedFrame != null && e.LeftButton == MouseButtonState.Pressed)
+            if (IsDragEnabled && _draggedFrame != null && e.LeftButton == MouseButtonState.Pressed)
             {
                 double dx = (pos.X - _dragStartPos.X) / _scale;
                 double dy = (pos.Y - _dragStartPos.Y) / _scale;
@@ -343,10 +361,14 @@ namespace IrisPxS.Controls
             {
                 Cursor = Cursors.Cross;
             }
-            else if (SelectedFrame != null)
+            else if (IsDragEnabled && SelectedFrame != null)
             {
                 int h = HitTestHandles(pos, SelectedFrame);
                 Cursor = GetCursorForHandle(h);
+            }
+            else if (Frames != null && Frames.Any(f => IsPointInsideFrame(pos, f)))
+            {
+                Cursor = Cursors.Hand;
             }
             else
             {
@@ -579,6 +601,49 @@ namespace IrisPxS.Controls
                 frame.CropRect = new OpenCvSharp.Rect(newX, newY, r.Width, r.Height);
             }
 
+            InvalidateVisual();
+            FrameModified?.Invoke(this, EventArgs.Empty);
+        }
+
+        /// <summary>
+        /// 選択中のコマ枠のサイズを変更 (dw: 幅増減, dh: 高さ増減)
+        /// </summary>
+        public void ResizeSelectedFrame(int dw, int dh)
+        {
+            if (SelectedFrame == null) return;
+            var r = SelectedFrame.CropRect;
+            int newW = Math.Max(30, r.Width + dw);
+            int newH = Math.Max(30, r.Height + dh);
+
+            if (ImageSource != null)
+            {
+                newW = Math.Min(newW, ImageSource.PixelWidth - r.X);
+                newH = Math.Min(newH, ImageSource.PixelHeight - r.Y);
+            }
+
+            SelectedFrame.CropRect = new OpenCvSharp.Rect(r.X, r.Y, newW, newH);
+            InvalidateVisual();
+            FrameModified?.Invoke(this, EventArgs.Empty);
+        }
+
+        /// <summary>
+        /// 選択中のコマ枠の座標・寸法を直接指定
+        /// </summary>
+        public void SetSelectedFrameRect(int x, int y, int w, int h)
+        {
+            if (SelectedFrame == null) return;
+            w = Math.Max(20, w);
+            h = Math.Max(20, h);
+            x = Math.Max(0, x);
+            y = Math.Max(0, y);
+
+            if (ImageSource != null)
+            {
+                if (x + w > ImageSource.PixelWidth) w = Math.Max(20, ImageSource.PixelWidth - x);
+                if (y + h > ImageSource.PixelHeight) h = Math.Max(20, ImageSource.PixelHeight - y);
+            }
+
+            SelectedFrame.CropRect = new OpenCvSharp.Rect(x, y, w, h);
             InvalidateVisual();
             FrameModified?.Invoke(this, EventArgs.Empty);
         }

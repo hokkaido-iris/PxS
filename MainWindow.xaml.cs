@@ -57,6 +57,7 @@ namespace IrisPxS
                         UpdateFrameThumbnail(f);
                     }
                 }
+                SyncFrameControlPanelInputs();
                 if (RbViewSingle.IsChecked == true) UpdateSingleFramePreview();
             };
             ScanCanvas.ColorPicked += (s, rgb) =>
@@ -913,7 +914,139 @@ namespace IrisPxS
             {
                 UpdateFrameThumbnail(f);
             }
+            SyncFrameControlPanelInputs();
             if (RbViewSingle?.IsChecked == true) UpdateSingleFramePreview();
+        }
+
+        // ======================================================================
+        // 【中央】選択コマ精密制御パネル (D-Pad, ステップ, サイズ, 数値入力, ドラッグロック)
+        // ======================================================================
+
+        private int GetSelectedStep()
+        {
+            if (RbStep1?.IsChecked == true) return 1;
+            if (RbStep5?.IsChecked == true) return 5;
+            if (RbStep10?.IsChecked == true) return 10;
+            if (RbStep50?.IsChecked == true) return 50;
+            return 1;
+        }
+
+        private void BtnFrameLeft_Click(object sender, RoutedEventArgs e) => MoveFrameByDelta(-GetSelectedStep(), 0);
+        private void BtnFrameRight_Click(object sender, RoutedEventArgs e) => MoveFrameByDelta(GetSelectedStep(), 0);
+        private void BtnFrameUp_Click(object sender, RoutedEventArgs e) => MoveFrameByDelta(0, -GetSelectedStep());
+        private void BtnFrameDown_Click(object sender, RoutedEventArgs e) => MoveFrameByDelta(0, GetSelectedStep());
+
+        private void MoveFrameByDelta(int dx, int dy)
+        {
+            if (_selectedFrame == null && (_currentRoll.AllFrames == null || _currentRoll.AllFrames.Count == 0)) return;
+
+            if (RbTargetAllFrames?.IsChecked == true)
+            {
+                ScanCanvas.NudgeAllFrames(dx, dy);
+                foreach (var f in _currentRoll.AllFrames)
+                {
+                    UpdateFrameThumbnail(f);
+                }
+            }
+            else
+            {
+                ScanCanvas.NudgeSelectedFrame(dx, dy);
+                if (_selectedFrame != null)
+                {
+                    UpdateFrameThumbnail(_selectedFrame);
+                }
+            }
+
+            SyncFrameControlPanelInputs();
+            if (RbViewSingle?.IsChecked == true) UpdateSingleFramePreview();
+        }
+
+        private void BtnFrameWidthDec_Click(object sender, RoutedEventArgs e) => ResizeFrameByDelta(-GetSelectedStep(), 0);
+        private void BtnFrameWidthInc_Click(object sender, RoutedEventArgs e) => ResizeFrameByDelta(GetSelectedStep(), 0);
+        private void BtnFrameHeightDec_Click(object sender, RoutedEventArgs e) => ResizeFrameByDelta(0, -GetSelectedStep());
+        private void BtnFrameHeightInc_Click(object sender, RoutedEventArgs e) => ResizeFrameByDelta(0, GetSelectedStep());
+
+        private void ResizeFrameByDelta(int dw, int dh)
+        {
+            if (_selectedFrame == null) return;
+            ScanCanvas.ResizeSelectedFrame(dw, dh);
+            UpdateFrameThumbnail(_selectedFrame);
+            SyncFrameControlPanelInputs();
+            if (RbViewSingle?.IsChecked == true) UpdateSingleFramePreview();
+        }
+
+        private void TxtFrameCoord_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter)
+            {
+                CommitFrameCoordInputs();
+                e.Handled = true;
+            }
+        }
+
+        private void TxtFrameCoord_LostFocus(object sender, RoutedEventArgs e)
+        {
+            CommitFrameCoordInputs();
+        }
+
+        private void CommitFrameCoordInputs()
+        {
+            if (_isUpdatingUi || _selectedFrame == null) return;
+
+            if (int.TryParse(TxtFrameX.Text, out int x) &&
+                int.TryParse(TxtFrameY.Text, out int y) &&
+                int.TryParse(TxtFrameW.Text, out int w) &&
+                int.TryParse(TxtFrameH.Text, out int h))
+            {
+                ScanCanvas.SetSelectedFrameRect(x, y, w, h);
+                UpdateFrameThumbnail(_selectedFrame);
+                SyncFrameControlPanelInputs();
+                if (RbViewSingle?.IsChecked == true) UpdateSingleFramePreview();
+            }
+            else
+            {
+                SyncFrameControlPanelInputs();
+            }
+        }
+
+        private void SyncFrameControlPanelInputs()
+        {
+            if (TxtSelectedFrameBadge == null || TxtFrameX == null) return;
+
+            if (_selectedFrame == null)
+            {
+                TxtSelectedFrameBadge.Text = "コマ未選択";
+                BadgeFrameSelection.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(140, 140, 140));
+                TxtFrameX.Text = "";
+                TxtFrameY.Text = "";
+                TxtFrameW.Text = "";
+                TxtFrameH.Text = "";
+                return;
+            }
+
+            _isUpdatingUi = true;
+            try
+            {
+                TxtSelectedFrameBadge.Text = $"コマ #{_selectedFrame.FrameNumber}";
+                BadgeFrameSelection.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0, 120, 215));
+                var r = _selectedFrame.CropRect;
+                TxtFrameX.Text = r.X.ToString();
+                TxtFrameY.Text = r.Y.ToString();
+                TxtFrameW.Text = r.Width.ToString();
+                TxtFrameH.Text = r.Height.ToString();
+            }
+            finally
+            {
+                _isUpdatingUi = false;
+            }
+        }
+
+        private void ChkLockMouseDrag_Changed(object sender, RoutedEventArgs e)
+        {
+            if (ScanCanvas != null && ChkLockMouseDrag != null)
+            {
+                ScanCanvas.IsDragEnabled = (ChkLockMouseDrag.IsChecked == false);
+            }
         }
 
         private void SliderCropInset_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -1139,6 +1272,8 @@ namespace IrisPxS
                 if (frame.DustRemovalStrength == 1) RbIceWeak.IsChecked = true;
                 else if (frame.DustRemovalStrength == 3) RbIceStrong.IsChecked = true;
                 else RbIceMedium.IsChecked = true;
+
+                SyncFrameControlPanelInputs();
 
                 if (RbViewSingle.IsChecked == true)
                 {
