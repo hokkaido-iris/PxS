@@ -1,0 +1,13 @@
+# .NET Core / C# / WPF
+bin/
+obj/
+*.user
+*.userosscache
+*.sln.docstates
+.vs/
+.vscode/
+
+# Local cache & temporary files
+Sessions/
+*.tmp
+*.log
