@@ -66,26 +66,61 @@ namespace IrisPxS.Services
                     using var rawMat = Cv2.ImRead(frame.RawImagePath, ImreadModes.Color);
                     if (rawMat.Empty()) continue;
 
+                    // コマ領域 (CropRect) の切り出し
+                    Mat croppedRaw;
+                    if (frame.CropRect.Width > 0 && frame.CropRect.Height > 0)
+                    {
+                        int cx = Math.Max(0, Math.Min(frame.CropRect.X, rawMat.Width - 1));
+                        int cy = Math.Max(0, Math.Min(frame.CropRect.Y, rawMat.Height - 1));
+                        int cw = Math.Min(frame.CropRect.Width, rawMat.Width - cx);
+                        int ch = Math.Min(frame.CropRect.Height, rawMat.Height - cy);
+                        croppedRaw = new Mat(rawMat, new OpenCvSharp.Rect(cx, cy, cw, ch)).Clone();
+                    }
+                    else
+                    {
+                        croppedRaw = rawMat.Clone();
+                    }
+
                     // 赤外線ゴミ除去
                     Mat cleanMat;
                     if (frame.DustRemovalEnabled)
                     {
-                        using var irMat = !string.IsNullOrEmpty(frame.IrImagePath) && File.Exists(frame.IrImagePath)
-                            ? Cv2.ImRead(frame.IrImagePath, ImreadModes.Unchanged)
-                            : null;
+                        Mat? irMat = null;
+                        if (!string.IsNullOrEmpty(frame.IrImagePath) && File.Exists(frame.IrImagePath))
+                        {
+                            using var fullIr = Cv2.ImRead(frame.IrImagePath, ImreadModes.Unchanged);
+                            if (!fullIr.Empty())
+                            {
+                                if (frame.CropRect.Width > 0 && frame.CropRect.Height > 0)
+                                {
+                                    int cx = Math.Max(0, Math.Min(frame.CropRect.X, fullIr.Width - 1));
+                                    int cy = Math.Max(0, Math.Min(frame.CropRect.Y, fullIr.Height - 1));
+                                    int cw = Math.Min(frame.CropRect.Width, fullIr.Width - cx);
+                                    int ch = Math.Min(frame.CropRect.Height, fullIr.Height - cy);
+                                    irMat = new Mat(fullIr, new OpenCvSharp.Rect(cx, cy, cw, ch)).Clone();
+                                }
+                                else
+                                {
+                                    irMat = fullIr.Clone();
+                                }
+                            }
+                        }
 
                         using var defectMask = irMat != null
                             ? _dustService.GenerateDefectMaskFromIr(irMat, frame.DustRemovalStrength)
-                            : _dustService.GenerateDefectMaskFromColor(rawMat, frame.DustRemovalStrength);
+                            : _dustService.GenerateDefectMaskFromColor(croppedRaw, frame.DustRemovalStrength);
 
-                        cleanMat = _dustService.RemoveDustAndScratches(rawMat, defectMask);
+                        irMat?.Dispose();
+
+                        cleanMat = _dustService.RemoveDustAndScratches(croppedRaw, defectMask);
+                        croppedRaw.Dispose();
                     }
                     else
                     {
-                        cleanMat = rawMat.Clone();
+                        cleanMat = croppedRaw;
                     }
 
-                    // NP変換 (ネガポジ反転・プロファイル適用)
+                    // NP変換 (ネガポジ反転)
                     var positiveMat = _negativeEngine.ConvertNegativeToPositive(cleanMat, frame);
                     cleanMat.Dispose();
 

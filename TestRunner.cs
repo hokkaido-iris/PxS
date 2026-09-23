@@ -36,16 +36,23 @@ namespace IrisPxS
             var (colorMat, irMat) = await scannerService.ScanAsync(null, 300, true);
             Console.WriteLine($"スキャン取得サイズ: {colorMat.Width}x{colorMat.Height}, IRサイズ: {irMat?.Width}x{irMat?.Height}");
 
-            // 3. コマ自動検出テスト (35mm フルサイズ)
-            Console.WriteLine("\n[3/6] コマ自動認識テスト (35mm Full Format)...");
-            var format = FilmFormat.GetPresetFormats()[0];
-            var detectedFrames = detectorService.DetectFrames(colorMat, format);
-            Console.WriteLine($"検出コマ数: {detectedFrames.Count}");
+            // 3. コマ自動検出テスト (35mm フルサイズ & 傾き補正)
+            Console.WriteLine("\n[3/6] コマ自動認識テスト (35mm Full Format & 傾き補正)...");
+            var format = FilmFormat.GetPresetFormats()[0]; // 135 Full-Frame
+            var (straightenedMat, skewAngle, detectedFrames) = detectorService.DetectAndStraighten(colorMat, format, 300);
+            Console.WriteLine($"直立画像検知傾き角: {skewAngle:F2}°, 検出コマ数: {detectedFrames.Count}");
             for (int i = 0; i < detectedFrames.Count; i++)
             {
                 var r = detectedFrames[i];
-                Console.WriteLine($"  コマ #{i + 1}: X={r.X}, Y={r.Y}, W={r.Width}, H={r.Height}, Aspect={((double)r.Width / r.Height):F2}");
+                Console.WriteLine($"  コマ #{i + 1}: X={r.X}, Y={r.Y}, W={r.Width}, H={r.Height}, Aspect={((double)r.Height / r.Width):F2}");
             }
+
+            // 意図的な傾き（+2.5度）の検出テスト
+            using var rotMat = Cv2.GetRotationMatrix2D(new Point2f(colorMat.Width / 2f, colorMat.Height / 2f), -2.5, 1.0);
+            using var tiltedColor = new Mat();
+            Cv2.WarpAffine(colorMat, tiltedColor, rotMat, colorMat.Size(), InterpolationFlags.Linear, BorderTypes.Replicate);
+            double detectedTiltedAngle = detectorService.DetectFilmSkewAngleFromContrast(tiltedColor);
+            Console.WriteLine($"意図的傾き (+2.50°) 画像のコントラスト検知結果: {detectedTiltedAngle:F2}° (誤差: {Math.Abs(detectedTiltedAngle - 2.5):F2}°)");
 
             // 4. ベースカラー自動検知 & NP変換テスト
             Console.WriteLine("\n[4/6] ベースカラー自動検知 & NP変換テスト...");

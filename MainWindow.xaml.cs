@@ -681,9 +681,36 @@ namespace IrisPxS
 
             var format = GetSelectedFormat();
             int dpi = GetSelectedScanDpi();
-            TxtStatus.Text = $"コマ自動認識を実行中 (フォーマット: {format.DisplayName}, {dpi} DPI)...";
+            TxtStatus.Text = $"フィルム全体のコントラストから傾き検知およびコマ枠配置を実行中 (フォーマット: {format.DisplayName}, {dpi} DPI)...";
 
-            var detectedRects = _detectorService.DetectFrames(_currentScanMat, format, dpi);
+            var (straightenedMat, skewAngle, detectedRects) = _detectorService.DetectAndStraighten(_currentScanMat, format, dpi);
+
+            // 傾きが検知された場合 (0.1度以上)、画像を正立（回転補正）した画像に差し替え
+            if (Math.Abs(skewAngle) >= 0.1)
+            {
+                _currentScanMat.Dispose();
+                _currentScanMat = straightenedMat;
+
+                if (_currentIrMat != null && !_currentIrMat.IsDisposed)
+                {
+                    var straightIr = _detectorService.StraightenImage(_currentIrMat, skewAngle);
+                    _currentIrMat.Dispose();
+                    _currentIrMat = straightIr;
+                }
+
+                if (_currentStrip != null)
+                {
+                    var (rawPath, irPath) = _sessionService.SaveStripImages(_currentRoll.SessionId, _currentStrip.Id, _currentScanMat, _currentIrMat);
+                    _currentStrip.FullScanImagePath = rawPath;
+                    _currentStrip.FullScanIrPath = irPath;
+                }
+
+                ScanCanvas.ImageSource = _currentScanMat.ToBitmapSource();
+            }
+            else
+            {
+                straightenedMat.Dispose();
+            }
 
             if (_currentStrip == null)
             {
@@ -734,7 +761,9 @@ namespace IrisPxS
             }
 
             UpdateFrameSummary();
-            TxtStatus.Text = $"{detectedRects.Count} 個のコマを自動検出しました。";
+            TxtStatus.Text = Math.Abs(skewAngle) >= 0.1
+                ? $"コントラストから傾き {skewAngle:F1}° を検知・自動正立補正し、フォーマット「{format.DisplayName}」に基づき {detectedRects.Count} コマを自動生成しました。"
+                : $"フォーマット「{format.DisplayName}」に基づき {detectedRects.Count} コマを自動配置しました。";
         }
 
         private void BtnAddFrame_Click(object sender, RoutedEventArgs e)
@@ -753,19 +782,18 @@ namespace IrisPxS
 
             var format = GetSelectedFormat();
             int dpi = GetSelectedScanDpi();
-            double mmToPx = (double)dpi / 25.4;
-            int defaultW = (int)Math.Round(format.PhysicalWidthMm * mmToPx);
-            int defaultH = (int)Math.Round(format.PhysicalHeightMm * mmToPx);
+            bool isVertical = _currentScanMat.Height > _currentScanMat.Width;
+            FrameDetectorService.GetFormatDimensions(format, isVertical, dpi, out int defaultW, out int defaultH, out _);
 
-            if (defaultW <= 20 || defaultW > _currentScanMat.Width) defaultW = (int)(_currentScanMat.Width * 0.85);
-            if (defaultH <= 20 || defaultH > _currentScanMat.Height) defaultH = (int)(defaultW / format.AspectRatio);
+            int startX = Math.Max(0, (_currentScanMat.Width - defaultW) / 2);
+            int startY = Math.Max(0, (_currentScanMat.Height - defaultH) / 2);
 
             int nextNum = _currentRoll.AllFrames.Count > 0 ? _currentRoll.AllFrames.Max(f => f.FrameNumber) + 1 : 1;
             var newFrame = new FilmFrame
             {
                 FrameNumber = nextNum,
                 StripId = _currentStrip.Id,
-                CropRect = new OpenCvSharp.Rect(50, 50, defaultW, defaultH),
+                CropRect = new OpenCvSharp.Rect(startX, startY, defaultW, defaultH),
                 RawImagePath = _currentStrip.FullScanImagePath,
                 IrImagePath = _currentStrip.FullScanIrPath,
                 CameraModel = "",
