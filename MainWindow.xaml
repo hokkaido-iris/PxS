@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:controls="clr-namespace:IrisPxS.Controls"
         mc:Ignorable="d"
-        Title="IRIS PxS - Epson GT-X820 フィルムスキャニングシステム" Height="780" Width="1240"
+        Title="IRIS PxS - フィルムスキャニングシステム (Epson GT-X820)" Height="840" Width="1360"
         WindowStartupLocation="CenterScreen"
         Background="#F0F0F0" Foreground="#000000" FontFamily="Yu Gothic UI, Segoe UI, メイリオ" FontSize="12">
 
@@ -31,7 +31,7 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+                        <Border x:Name="bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="1">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}" />
                         </Border>
                         <ControlTemplate.Triggers>
@@ -61,7 +61,7 @@
             <Setter Property="Foreground" Value="#000000" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Margin" Value="0,0,0,6" />
-            <Setter Property="Padding" Value="6" />
+            <Setter Property="Padding" Value="6,4" />
         </Style>
 
         <!-- WinForms Standard TextBox -->
@@ -101,334 +101,359 @@
             <Setter Property="Foreground" Value="#000000" />
             <Setter Property="FontWeight" Value="Normal" />
         </Style>
+
+        <!-- Icon Toggle Button Style -->
+        <Style x:Key="IconViewButtonStyle" TargetType="RadioButton">
+            <Setter Property="Width" Value="32" />
+            <Setter Property="Height" Value="28" />
+            <Setter Property="Margin" Value="2,0" />
+            <Setter Property="BorderBrush" Value="#A0A0A0" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Background" Value="#E6E6E6" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="1">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="#CCE4F7" />
+                                <Setter TargetName="bd" Property="BorderBrush" Value="#0078D7" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="#E5F1FB" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <Grid Background="#F0F0F0">
         <Grid.RowDefinitions>
-            <RowDefinition Height="24" />  <!-- MenuStrip -->
-            <RowDefinition Height="34" />  <!-- ToolStrip -->
-            <RowDefinition Height="*" />   <!-- Work Area (3 Columns) -->
-            <RowDefinition Height="100" /> <!-- Filmstrip Thumbnail Bar -->
-            <RowDefinition Height="24" />  <!-- StatusStrip -->
+            <RowDefinition Height="46" />  <!-- [上側] Machine Control -->
+            <RowDefinition Height="*" />   <!-- [ワークエリア] 3 Columns -->
+            <RowDefinition Height="125" /> <!-- [下側] Film Strip -->
+            <RowDefinition Height="22" />  <!-- StatusStrip -->
         </Grid.RowDefinitions>
 
-        <!-- MenuStrip -->
-        <Menu Grid.Row="0" Background="#F5F6F7" BorderBrush="#D4D4D4" BorderThickness="0,0,0,1">
-            <MenuItem Header="ファイル(&amp;F)">
-                <MenuItem Header="画像を開く(&amp;O)..." Click="BtnOpenImage_Click" />
-                <Separator />
-                <MenuItem Header="フォルダへ一括書き出し(&amp;E)..." Click="BtnExportFolder_Click" />
-                <MenuItem Header="ZIPアーカイブへ書き出し(&amp;Z)..." Click="BtnExportZip_Click" />
-                <Separator />
-                <MenuItem Header="終了(&amp;X)" Click="MenuExit_Click" />
-            </MenuItem>
-            <MenuItem Header="スキャン(&amp;S)">
-                <MenuItem Header="予備スキャン (PreScan)" Click="BtnPreScan_Click" />
-                <MenuItem Header="本スキャン実行 (Scan)" Click="BtnScanCurrent_Click" />
-                <Separator />
-                <MenuItem Header="スキャナー状態の再検出" Click="BtnRefreshScanner_Click" />
-            </MenuItem>
-            <MenuItem Header="コマ検出(&amp;C)">
-                <MenuItem Header="自動コマ認識を実行" Click="BtnAutoDetectFrames_Click" />
-                <MenuItem Header="コマ枠の追加" Click="BtnAddFrame_Click" />
-                <MenuItem Header="選択コマ枠の削除" Click="BtnDeleteFrame_Click" />
-            </MenuItem>
-            <MenuItem Header="ヘルプ(&amp;H)">
-                <MenuItem Header="バージョン情報(&amp;A)..." Click="MenuAbout_Click" />
-            </MenuItem>
-        </Menu>
-
-        <!-- ToolStrip -->
-        <Border Grid.Row="1" Background="#FAFAFA" BorderBrush="#D4D4D4" BorderThickness="0,0,0,1" Padding="4,2">
+        <!-- ====================================================================== -->
+        <!-- 【上側】Machine Control                                                 -->
+        <!-- ====================================================================== -->
+        <Border Grid.Row="0" Background="#E8E8E8" BorderBrush="#B0B0B0" BorderThickness="0,0,0,1" Padding="8,4">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" /> <!-- 左詰め: Pre-Scan, Scan -->
+                    <ColumnDefinition Width="*" />    <!-- 中揃え: IRIS PxS タイポグラフィ -->
+                    <ColumnDefinition Width="Auto" /> <!-- 右詰め: 接続機器, 状況LED, Scanner Setting -->
                 </Grid.ColumnDefinitions>
 
+                <!-- 左詰め: Pre-Scan / Scan -->
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button x:Name="BtnPreScan" Content="PreScan (予備)" Width="105" FontWeight="SemiBold" Click="BtnPreScan_Click" />
-                    <Button x:Name="BtnScanCurrent" Content="Scan (本スキャン)" Width="110" FontWeight="SemiBold" Margin="4,0" Click="BtnScanCurrent_Click" />
-                    <Button x:Name="BtnScanDialog" Content="スキャナーUI..." Width="95" Margin="4,0" Click="BtnScanDialog_Click" />
-                    <Button x:Name="BtnOpenImage" Content="画像読込..." Width="75" Margin="4,0,10,0" Click="BtnOpenImage_Click" />
+                    <Button x:Name="BtnPreScan" Content="Pre-Scan" Width="105" Height="32" FontWeight="SemiBold" Click="BtnPreScan_Click" ToolTip="透過光ユニット(TPU)で予備スキャンを実行" />
+                    <Button x:Name="BtnScan" Content="Scan" Width="110" Height="32" FontWeight="Bold" Margin="6,0,0,0" Background="#D5E8FF" BorderBrush="#0078D7" Click="BtnScanCurrent_Click" ToolTip="選択コマまたは指定解像度で本スキャンを実行" />
                 </StackPanel>
 
-                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="6,0">
-                    <TextBlock Text="接続機器: " VerticalAlignment="Center" FontWeight="SemiBold" />
-                    <TextBlock x:Name="TxtScannerStatus" Text="EPSON GT-X820 (Ready)" VerticalAlignment="Center" Foreground="#005500" Margin="0,0,12,0" />
-
-                    <TextBlock Text="規格: " VerticalAlignment="Center" FontWeight="SemiBold" />
-                    <ComboBox x:Name="ComboFilmFormat" Width="180" SelectionChanged="ComboFilmFormat_SelectionChanged" />
+                <!-- 中揃え: IRIS PxS -->
+                <StackPanel Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center" Orientation="Horizontal">
+                    <TextBlock Text="IRIS PxS" FontSize="20" FontWeight="Bold" Foreground="#1E1E1E" FontFamily="Segoe UI, Yu Gothic UI" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <TextBlock Text="Film Scanner Suite" FontSize="11" Foreground="#666666" VerticalAlignment="Bottom" Margin="0,0,0,3" />
                 </StackPanel>
 
+                <!-- 右詰め: ▼接続機器, 接続状況LED, Scanner Setting (正方形歯車) -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button x:Name="BtnRefreshScanner" Content="機器再検索" Width="80" Click="BtnRefreshScanner_Click" />
+                    <TextBlock Text="機器:" VerticalAlignment="Center" Margin="0,0,4,0" FontWeight="SemiBold" FontSize="11" />
+                    <ComboBox x:Name="CmbScannerList" Width="180" Height="25" VerticalAlignment="Center" Margin="0,0,8,0" SelectionChanged="CmbScannerList_SelectionChanged" />
+                    
+                    <!-- 接続状況インジケーター (丸の色で判別) -->
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,10,0">
+                        <Ellipse x:Name="LedScannerStatus" Width="12" Height="12" Fill="#28A745" Stroke="#1E7E34" StrokeThickness="1" Margin="0,0,4,0" VerticalAlignment="Center" />
+                        <TextBlock x:Name="TxtScannerStatus" Text="Ready" VerticalAlignment="Center" FontSize="11" FontWeight="SemiBold" Foreground="#28A745" />
+                    </StackPanel>
+
+                    <!-- Scanner Setting (正方形・歯車アイコン) -->
+                    <Button x:Name="BtnScannerSetting" Content="⚙" Width="30" Height="30" FontSize="16" FontWeight="Normal" Padding="0" Click="BtnScanDialog_Click" ToolTip="Epson Scan 詳細設定ダイアログを起動" />
                 </StackPanel>
             </Grid>
         </Border>
 
-        <!-- Work Area (3 Columns: Left Settings, Center Canvas, Right Parameters) -->
-        <Grid Grid.Row="2" Margin="4">
+        <!-- ====================================================================== -->
+        <!-- メインワークエリア: 3カラム (左: Data, 中央: Control Panel, 右: Image)     -->
+        <!-- ====================================================================== -->
+        <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="250" MinWidth="220" MaxWidth="320" />
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="310" MinWidth="270" MaxWidth="380" />
+                <ColumnDefinition Width="270" MinWidth="230" /> <!-- 【左側】Data Control -->
+                <ColumnDefinition Width="*" MinWidth="400" />   <!-- 【中央】Control Panel -->
+                <ColumnDefinition Width="290" MinWidth="250" /> <!-- 【右側】Image Control -->
             </Grid.ColumnDefinitions>
 
-            <!-- LEFT: Roll & Scan Settings -->
-            <Border Grid.Column="0" Background="#FFFFFF" BorderBrush="#B0B0B0" BorderThickness="1" Padding="6">
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <!-- ================================================================== -->
+            <!-- 【左側】Data Control                                                -->
+            <!-- ================================================================== -->
+            <Border Grid.Column="0" Background="#F0F0F0" BorderBrush="#B0B0B0" BorderThickness="0,0,1,0" Padding="8">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                     <StackPanel>
-                        <!-- Roll Metadata (All blank by default) -->
+                        <!-- ロール管理 -->
                         <GroupBox Header="ロール管理">
-                            <StackPanel>
+                            <StackPanel Margin="2">
                                 <Label Content="ロール名 / ID:" />
-                                <TextBox x:Name="TxtRollName" Text="" TextChanged="TxtRollName_TextChanged" />
+                                <TextBox x:Name="TxtRollName" Margin="0,0,0,6" TextChanged="TxtRollName_TextChanged" />
 
-                                <Label Content="フィルム銘柄:" Margin="0,2,0,0" />
-                                <TextBox x:Name="TxtRollFilmStock" Text="" TextChanged="TxtRollFilmStock_TextChanged" />
+                                <Label Content="フィルム銘柄:" />
+                                <ComboBox x:Name="CmbFilmBrand" IsEditable="True" Margin="0,0,0,6" SelectionChanged="CmbFilmBrand_SelectionChanged" />
 
-                                <Grid Margin="0,2,0,0">
+                                <Label Content="ISO感度:" />
+                                <ComboBox x:Name="CmbRollIso" IsEditable="True" Margin="0,0,0,4" SelectionChanged="CmbRollIso_SelectionChanged" />
+                            </StackPanel>
+                        </GroupBox>
+
+                        <!-- フォーマット設定 -->
+                        <GroupBox Header="フォーマット設定">
+                            <StackPanel Margin="2">
+                                <Label Content="フィルムサイズ:" />
+                                <ComboBox x:Name="CmbFilmSizeCategory" Margin="0,0,0,6" SelectionChanged="CmbFilmSizeCategory_SelectionChanged" />
+
+                                <Label Content="フォーマット:" />
+                                <ComboBox x:Name="CmbFilmFormat" Margin="0,0,0,8" SelectionChanged="CmbFilmFormat_SelectionChanged" />
+
+                                <Grid Margin="0,0,0,4">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
-                                    <StackPanel Grid.Column="0" Margin="0,0,2,0">
-                                        <Label Content="撮影カメラ:" />
-                                        <TextBox x:Name="TxtRollCamera" Text="" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="1" Margin="2,0,0,0">
-                                        <Label Content="使用レンズ:" />
-                                        <TextBox x:Name="TxtRollLens" Text="" />
-                                    </StackPanel>
+                                    <Button x:Name="BtnAutoDetect" Content="自動コマ認識" Grid.Column="0" Margin="0,0,2,0" FontWeight="SemiBold" Click="BtnAutoDetectFrames_Click" />
+                                    <Button x:Name="BtnAddFrame" Content="+ コマ枠追加" Grid.Column="1" Margin="2,0,0,0" Click="BtnAddFrame_Click" />
                                 </Grid>
+                                <Button x:Name="BtnDeleteFrame" Content="選択コマ枠を削除" Margin="0,2,0,0" Click="BtnDeleteFrame_Click" />
                             </StackPanel>
                         </GroupBox>
 
-                        <!-- Hardware Scan Settings -->
-                        <GroupBox Header="スキャン解像度設定">
-                            <StackPanel>
-                                <Label Content="解像度 (DPI):" />
-                                <ComboBox x:Name="ComboScanDpi" SelectedIndex="1">
-                                    <ComboBoxItem Content="1200 DPI" />
-                                    <ComboBoxItem Content="2400 DPI (推奨)" />
-                                    <ComboBoxItem Content="3200 DPI" />
-                                    <ComboBoxItem Content="4800 DPI" />
-                                    <ComboBoxItem Content="6400 DPI (光学上限)" />
-                                    <ComboBoxItem Content="9600 DPI (補間)" />
-                                    <ComboBoxItem Content="12800 DPI (最大補間)" />
-                                </ComboBox>
-
-                                <CheckBox x:Name="ChkTransmissive" Content="透過原稿ユニット点灯 (フィルムモード)" IsChecked="True" FontWeight="SemiBold" Margin="0,6,0,2" />
-                                <CheckBox x:Name="ChkAutoDetectAfterScan" Content="スキャン後自動コマ割り" IsChecked="True" Margin="0,0,0,2" />
+                        <!-- スキャン解像度設定 -->
+                        <GroupBox Header="解像度設定">
+                            <StackPanel Margin="2">
+                                <Label Content="スキャン解像度 (DPI):" />
+                                <ComboBox x:Name="CmbDpi" Margin="0,0,0,4" SelectionChanged="CmbDpi_SelectionChanged" />
+                                <TextBlock Text="※最大 12800 DPI まで対応" FontSize="10" Foreground="#666666" />
                             </StackPanel>
                         </GroupBox>
 
-                        <!-- Strips in Roll -->
-                        <GroupBox Header="スキャン済みストリップ">
-                            <StackPanel>
-                                <ListBox x:Name="ListStrips" Height="90" BorderBrush="#B0B0B0" SelectionChanged="ListStrips_SelectionChanged">
-                                    <ListBox.ItemTemplate>
-                                        <DataTemplate>
-                                            <TextBlock Text="{Binding Name}" Margin="2" />
-                                        </DataTemplate>
-                                    </ListBox.ItemTemplate>
-                                </ListBox>
-                                <Button x:Name="BtnAutoDetectFrames" Content="コマ再検出実行" Height="24" Margin="0,4,0,0" Click="BtnAutoDetectFrames_Click" />
-                            </StackPanel>
-                        </GroupBox>
-
-                        <!-- Batch Export -->
-                        <GroupBox Header="エクスポート">
-                            <StackPanel>
-                                <Label Content="画像形式:" />
-                                <ComboBox x:Name="ComboExportFormat" SelectedIndex="0">
-                                    <ComboBoxItem Content="JPEG (高品質 95%)" />
-                                    <ComboBoxItem Content="TIFF (ロスレス)" />
-                                    <ComboBoxItem Content="PNG (ロスレス)" />
-                                </ComboBox>
-                                <CheckBox x:Name="ChkContactSheet" Content="コンタクトシートを出力" IsChecked="True" Margin="0,4,0,6" />
-
-                                <Button x:Name="BtnExportFolder" Content="フォルダへ一括書き出し..." Height="26" FontWeight="SemiBold" Margin="0,0,0,3" Click="BtnExportFolder_Click" />
-                                <Button x:Name="BtnExportZip" Content="ZIPアーカイブとして書き出し..." Height="26" Margin="0,0,0,0" Click="BtnExportZip_Click" />
+                        <!-- エクスポート -->
+                        <GroupBox Header="一括書き出し (Export)">
+                            <StackPanel Margin="2">
+                                <Button x:Name="BtnExportFolder" Content="フォルダへ一括書き出し..." Height="28" Margin="0,2,0,4" FontWeight="SemiBold" Click="BtnExportFolder_Click" />
+                                <Button x:Name="BtnExportZip" Content="ZIPアーカイブへ書き出し..." Height="28" Margin="0,0,0,4" Click="BtnExportZip_Click" />
+                                <Button x:Name="BtnContactSheet" Content="コンタクトシート生成..." Margin="0,0,0,2" Click="BtnContactSheet_Click" />
                             </StackPanel>
                         </GroupBox>
                     </StackPanel>
                 </ScrollViewer>
             </Border>
 
-            <!-- CENTER: Preview Canvas -->
-            <Border Grid.Column="1" Background="#404040" BorderBrush="#B0B0B0" BorderThickness="1" Margin="4,0">
-                <Grid>
-                    <controls:FrameCanvas x:Name="MainCanvas" Background="#303030" />
+            <!-- ================================================================== -->
+            <!-- 【中央】Control Panel                                              -->
+            <!-- ================================================================== -->
+            <Grid Grid.Column="1" Background="#E0E0E0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="34" /> <!-- 上部ツールバー (右上にビュー切替ボタン) -->
+                    <RowDefinition Height="*" />  <!-- 各種ビュー表示領域 -->
+                </Grid.RowDefinitions>
 
-                    <!-- Floating Canvas Tools -->
-                    <Border Background="#F5F6F7" BorderBrush="#B0B0B0" BorderThickness="1" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="6" Padding="2">
-                        <StackPanel Orientation="Horizontal">
-                            <Button x:Name="BtnFitView" Content="全体表示" Height="22" Width="60" Click="BtnFitView_Click" />
-                            <ToggleButton x:Name="ToggleEyedropper" Content="スポイト" Height="22" Width="55" Margin="2,0" Checked="ToggleEyedropper_Checked" Unchecked="ToggleEyedropper_Unchecked" />
-                            <Button x:Name="BtnAddFrame" Content="枠追加" Height="22" Width="50" Click="BtnAddFrame_Click" />
-                            <Button x:Name="BtnDeleteFrame" Content="枠削除" Height="22" Width="50" Click="BtnDeleteFrame_Click" />
+                <!-- 上部コントロールバー -->
+                <Border Grid.Row="0" Background="#F0F0F0" BorderBrush="#B0B0B0" BorderThickness="0,0,0,1" Padding="6,2">
+                    <Grid>
+                        <!-- 左側: ビュー状態表示 -->
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock x:Name="TxtViewModeTitle" Text="スキャン全体ビュー" FontWeight="Bold" FontSize="12" VerticalAlignment="Center" Margin="4,0,12,0" />
+                            <TextBlock x:Name="TxtFrameSummary" Text="0 コマ登録" Foreground="#555555" FontSize="11" VerticalAlignment="Center" />
                         </StackPanel>
-                    </Border>
+
+                        <!-- 右上: アイコンのみの切替ボタン (全体ビュー / 個別ビュー / 全コマ設定表) -->
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <RadioButton x:Name="RbViewFull" Style="{StaticResource IconViewButtonStyle}" Content="▤" IsChecked="True" ToolTip="スキャン全体ビュー (コマ割り・原稿台全体)" Click="ViewMode_Changed" />
+                            <RadioButton x:Name="RbViewSingle" Style="{StaticResource IconViewButtonStyle}" Content="🖼" ToolTip="コマ個別ビュー (拡大表示・詳細確認)" Click="ViewMode_Changed" />
+                            <RadioButton x:Name="RbViewTable" Style="{StaticResource IconViewButtonStyle}" Content="⊞" ToolTip="全コマ設定表 (メタデータ一括入力表)" Click="ViewMode_Changed" />
+                            <Separator Margin="6,2" Width="1" Background="#B0B0B0" />
+                            <Button x:Name="BtnZoomFit" Content="全体" Width="40" Height="26" Margin="2,0" Click="BtnZoomFit_Click" ToolTip="画面に合わせる" />
+                            <Button x:Name="BtnRotateRight" Content="⟳" Width="28" Height="26" Margin="2,0" FontSize="13" Click="BtnRotateFrame_Click" ToolTip="90度右回転" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- 各種ビューのコンテナ -->
+                <Grid Grid.Row="1">
+                    <!-- ビュー 1: スキャン全体ビュー (FrameCanvas) -->
+                    <Grid x:Name="GridFullView" Visibility="Visible">
+                        <controls:FrameCanvas x:Name="ScanCanvas" Background="#333333" />
+                    </Grid>
+
+                    <!-- ビュー 2: コマ個別ビュー (Single Frame Positive Preview) -->
+                    <Grid x:Name="GridSingleView" Visibility="Collapsed" Background="#282828">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="36" />
+                        </Grid.RowDefinitions>
+
+                        <ScrollViewer x:Name="SingleImageScroller" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                            <Image x:Name="ImgSinglePreview" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality" Margin="10" />
+                        </ScrollViewer>
+
+                        <!-- コマ送りコントロール -->
+                        <Border Grid.Row="1" Background="#3A3A3A" BorderBrush="#555555" BorderThickness="0,1,0,0">
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <Button x:Name="BtnPrevFrame" Content="◀ 前のコマ" Width="90" Height="24" Click="BtnPrevFrame_Click" />
+                                <TextBlock x:Name="TxtSingleFrameInfo" Text="コマ 1 / 1" Foreground="#FFFFFF" FontWeight="Bold" Margin="16,0" VerticalAlignment="Center" />
+                                <Button x:Name="BtnNextFrame" Content="次のコマ ▶" Width="90" Height="24" Click="BtnNextFrame_Click" />
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+
+                    <!-- ビュー 3: 全コマ設定表 (DataGrid) -->
+                    <Grid x:Name="GridTableView" Visibility="Collapsed" Background="#FFFFFF">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="32" /> <!-- 一括操作バー -->
+                            <RowDefinition Height="*" />  <!-- DataGrid -->
+                        </Grid.RowDefinitions>
+
+                        <!-- テーブル一括操作バー -->
+                        <Border Grid.Row="0" Background="#F5F5F5" BorderBrush="#D0D0D0" BorderThickness="0,0,0,1" Padding="6,2">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button x:Name="BtnApplySelectedToAll" Content="選択行のカメラ・レンズを全コマにコピー" Height="24" Margin="0,0,6,0" Click="BtnApplySelectedToAll_Click" />
+                                <Button x:Name="BtnRenumberFrames" Content="1から連番で再採番" Height="24" Margin="0,0,6,0" Click="BtnRenumberFrames_Click" />
+                                <TextBlock Text="※各セルをダブルクリックして値を直接編集できます（コマ飛ばし可能）" FontSize="11" Foreground="#666666" VerticalAlignment="Center" Margin="8,0,0,0" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- 全コマ設定表 DataGrid -->
+                        <DataGrid x:Name="DgFramesTable" Grid.Row="1" AutoGenerateColumns="False" CanUserAddRows="False"
+                                  CanUserDeleteRows="False" SelectionMode="Single" SelectionUnit="FullRow"
+                                  GridLinesVisibility="All" HeadersVisibility="Column"
+                                  HorizontalGridLinesBrush="#E0E0E0" VerticalGridLinesBrush="#E0E0E0"
+                                  RowHeaderWidth="0" FontSize="11" SelectionChanged="DgFramesTable_SelectionChanged">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="コマ番号" Binding="{Binding FrameNumber, UpdateSourceTrigger=PropertyChanged}" Width="70" />
+                                <DataGridTextColumn Header="使用カメラ" Binding="{Binding CameraModel, UpdateSourceTrigger=PropertyChanged}" Width="140" />
+                                <DataGridTextColumn Header="使用レンズ" Binding="{Binding LensModel, UpdateSourceTrigger=PropertyChanged}" Width="140" />
+                                <DataGridTextColumn Header="F値" Binding="{Binding FNumber, UpdateSourceTrigger=PropertyChanged}" Width="65" />
+                                <DataGridTextColumn Header="SS (秒)" Binding="{Binding ShutterSpeed, UpdateSourceTrigger=PropertyChanged}" Width="75" />
+                                <DataGridTextColumn Header="ISO" Binding="{Binding ISO, UpdateSourceTrigger=PropertyChanged}" Width="65" />
+                                <DataGridTextColumn Header="露出補正" Binding="{Binding ExposureCompensation, UpdateSourceTrigger=PropertyChanged}" Width="75" />
+                                <DataGridTextColumn Header="撮影日" Binding="{Binding DateTaken, StringFormat={}{0:yyyy/MM/dd}, UpdateSourceTrigger=PropertyChanged}" Width="90" />
+                                <DataGridTextColumn Header="備考 / Notes" Binding="{Binding Notes, UpdateSourceTrigger=PropertyChanged}" Width="*" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Grid>
                 </Grid>
-            </Border>
+            </Grid>
 
-            <!-- RIGHT: Parameters & Exif Editor -->
-            <Border Grid.Column="2" Background="#FFFFFF" BorderBrush="#B0B0B0" BorderThickness="1" Padding="6">
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <!-- ================================================================== -->
+            <!-- 【右側】Image Control                                               -->
+            <!-- ================================================================== -->
+            <Border Grid.Column="2" Background="#F0F0F0" BorderBrush="#B0B0B0" BorderThickness="1,0,0,0" Padding="8">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                     <StackPanel>
-                        <!-- Frame Positive Preview -->
-                        <GroupBox Header="選択コマ プレビュー">
-                            <StackPanel>
-                                <Border Background="#1A1A1A" BorderBrush="#B0B0B0" BorderThickness="1" Height="120" Margin="0,0,0,4">
-                                    <Image x:Name="ImgPositivePreview" Stretch="Uniform" />
+                        <!-- カラー補正 -->
+                        <GroupBox Header="カラー補正">
+                            <StackPanel Margin="2">
+                                <Label Content="ベースカラー (未露光オレンジマスク):" />
+                                <Grid Margin="0,0,0,6">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Button x:Name="BtnAutoBaseColor" Content="自動検知" Grid.Column="0" Margin="0,0,2,0" Click="BtnAutoBaseColor_Click" />
+                                    <Button x:Name="BtnEyedropper" Content="スポイト" Grid.Column="1" Margin="2,0,0,0" Click="BtnEyedropper_Click" ToolTip="画面上のフィルム余白をクリックしてベース色を取得" />
+                                </Grid>
+
+                                <!-- ベースカラー プレビュー swatch -->
+                                <Border Height="24" BorderBrush="#888888" BorderThickness="1" Margin="0,0,0,6">
+                                    <Grid>
+                                        <Rectangle x:Name="RectBaseColorSwatch" Fill="#D77D4B" />
+                                        <TextBlock x:Name="TxtBaseColorRgb" Text="R: 215  G: 125  B: 75" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold" FontSize="11" Foreground="#FFFFFF">
+                                            <TextBlock.Effect>
+                                                <DropShadowEffect ShadowDepth="1" BlurRadius="2" Color="#000000" />
+                                            </TextBlock.Effect>
+                                        </TextBlock>
+                                    </Grid>
                                 </Border>
-                                <Grid>
+
+                                <Label Content="ネガポジ (NP) 変換プロファイル:" />
+                                <ComboBox x:Name="CmbFilmProfile" Margin="0,0,0,8" SelectionChanged="CmbFilmProfile_SelectionChanged" />
+
+                                <!-- 各種トーンスライダー -->
+                                <Grid Margin="0,2">
                                     <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="65" />
                                         <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="38" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock x:Name="TxtSelectedFrameNo" Text="コマ未選択" FontWeight="Bold" VerticalAlignment="Center" />
-                                    <Button x:Name="BtnRotateCcw" Grid.Column="1" Content="左回転" Width="50" Height="22" Click="BtnRotateCcw_Click" />
-                                    <Button x:Name="BtnRotateCw" Grid.Column="2" Content="右回転" Width="50" Height="22" Margin="2,0,0,0" Click="BtnRotateCw_Click" />
+                                    <TextBlock Text="露出 (EV):" VerticalAlignment="Center" FontSize="11" />
+                                    <Slider x:Name="SldExposure" Grid.Column="1" Minimum="-2.0" Maximum="2.0" Value="0.0" SmallChange="0.1" ValueChanged="ToneSlider_ValueChanged" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="TxtExposureVal" Text="0.0" Grid.Column="2" TextAlignment="Right" VerticalAlignment="Center" FontSize="11" />
                                 </Grid>
+
+                                <Grid Margin="0,2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="65" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="38" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="ｺﾝﾄﾗｽﾄ:" VerticalAlignment="Center" FontSize="11" />
+                                    <Slider x:Name="SldContrast" Grid.Column="1" Minimum="0.5" Maximum="2.0" Value="1.0" SmallChange="0.05" ValueChanged="ToneSlider_ValueChanged" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="TxtContrastVal" Text="1.0" Grid.Column="2" TextAlignment="Right" VerticalAlignment="Center" FontSize="11" />
+                                </Grid>
+
+                                <Grid Margin="0,2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="65" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="38" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="彩度:" VerticalAlignment="Center" FontSize="11" />
+                                    <Slider x:Name="SldSaturation" Grid.Column="1" Minimum="0.0" Maximum="2.0" Value="1.0" SmallChange="0.05" ValueChanged="ToneSlider_ValueChanged" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="TxtSaturationVal" Text="1.0" Grid.Column="2" TextAlignment="Right" VerticalAlignment="Center" FontSize="11" />
+                                </Grid>
+
+                                <Grid Margin="0,2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="65" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="38" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="色温度:" VerticalAlignment="Center" FontSize="11" />
+                                    <Slider x:Name="SldColorTemp" Grid.Column="1" Minimum="-50" Maximum="50" Value="0" SmallChange="1" ValueChanged="ToneSlider_ValueChanged" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="TxtColorTempVal" Text="0" Grid.Column="2" TextAlignment="Right" VerticalAlignment="Center" FontSize="11" />
+                                </Grid>
+
+                                <Grid Margin="0,2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="65" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="38" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="色合い:" VerticalAlignment="Center" FontSize="11" />
+                                    <Slider x:Name="SldTint" Grid.Column="1" Minimum="-50" Maximum="50" Value="0" SmallChange="1" ValueChanged="ToneSlider_ValueChanged" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="TxtTintVal" Text="0" Grid.Column="2" TextAlignment="Right" VerticalAlignment="Center" FontSize="11" />
+                                </Grid>
+
+                                <Button x:Name="BtnResetColor" Content="トーン設定を初期化" Margin="0,6,0,2" Click="BtnResetColor_Click" />
                             </StackPanel>
                         </GroupBox>
 
-                        <!-- Base Color & NP Engine -->
-                        <GroupBox Header="カラー補正 &amp; NP変換">
-                            <StackPanel>
-                                <Label Content="ベースカラー (オレンジマスク):" />
-                                <Grid Margin="0,0,0,4">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="24" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <Border x:Name="BorderBaseColorPreview" Background="#D77D4B" BorderBrush="#000000" BorderThickness="1" Height="18" />
-                                    <TextBlock x:Name="TxtBaseColorHex" Grid.Column="1" Text="#D77D4B" VerticalAlignment="Center" Margin="6,0,0,0" FontSize="11" />
-                                    <Button x:Name="BtnAutoDetectBase" Grid.Column="2" Content="自動検知" Height="22" Width="60" Click="BtnAutoDetectBase_Click" />
-                                </Grid>
-
-                                <Label Content="フィルムプロファイル:" />
-                                <ComboBox x:Name="ComboFilmProfiles" Margin="0,0,0,4" SelectionChanged="ComboFilmProfiles_SelectionChanged" />
-
-                                <Grid Margin="0,1">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="50" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="30" />
-                                    </Grid.ColumnDefinitions>
-                                    <Label Content="露出:" />
-                                    <Slider x:Name="SliderExposure" Grid.Column="1" Minimum="-2.0" Maximum="2.0" Value="0.0" ValueChanged="SliderTuning_ValueChanged" />
-                                    <TextBlock x:Name="TxtExposureVal" Grid.Column="2" Text="0.0" FontSize="10" HorizontalAlignment="Right" VerticalAlignment="Center" />
-                                </Grid>
-
-                                <Grid Margin="0,1">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="50" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="30" />
-                                    </Grid.ColumnDefinitions>
-                                    <Label Content="ｺﾝﾄﾗｽﾄ:" />
-                                    <Slider x:Name="SliderContrast" Grid.Column="1" Minimum="0.5" Maximum="1.8" Value="1.0" ValueChanged="SliderTuning_ValueChanged" />
-                                    <TextBlock x:Name="TxtContrastVal" Grid.Column="2" Text="1.0" FontSize="10" HorizontalAlignment="Right" VerticalAlignment="Center" />
-                                </Grid>
-
-                                <Grid Margin="0,1">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="50" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="30" />
-                                    </Grid.ColumnDefinitions>
-                                    <Label Content="彩度:" />
-                                    <Slider x:Name="SliderSaturation" Grid.Column="1" Minimum="0.0" Maximum="2.0" Value="1.0" ValueChanged="SliderTuning_ValueChanged" />
-                                    <TextBlock x:Name="TxtSaturationVal" Grid.Column="2" Text="1.0" FontSize="10" HorizontalAlignment="Right" VerticalAlignment="Center" />
-                                </Grid>
-
-                                <Grid Margin="0,1">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="50" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="30" />
-                                    </Grid.ColumnDefinitions>
-                                    <Label Content="色温度:" />
-                                    <Slider x:Name="SliderColorTemp" Grid.Column="1" Minimum="-50" Maximum="50" Value="0.0" ValueChanged="SliderTuning_ValueChanged" />
-                                    <TextBlock x:Name="TxtColorTempVal" Grid.Column="2" Text="0" FontSize="10" HorizontalAlignment="Right" VerticalAlignment="Center" />
-                                </Grid>
-                            </StackPanel>
-                        </GroupBox>
-
-                        <!-- Dust & Scratch Removal -->
-                        <GroupBox Header="赤外線ゴミ除去 (ICE)">
-                            <StackPanel>
-                                <CheckBox x:Name="ChkDustRemoval" Content="ゴミ・キズ除去処理を適用" IsChecked="True" Checked="ChkDustRemoval_Checked" Unchecked="ChkDustRemoval_Checked" />
-                                <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
-                                    <Label Content="処理強度: " VerticalAlignment="Center" />
-                                    <RadioButton x:Name="RadioDustWeak" Content="弱" GroupName="DustStrWinForm" Margin="4,0" Checked="RadioDust_Checked" />
-                                    <RadioButton x:Name="RadioDustNormal" Content="標準" GroupName="DustStrWinForm" IsChecked="True" Margin="4,0" Checked="RadioDust_Checked" />
-                                    <RadioButton x:Name="RadioDustStrong" Content="強" GroupName="DustStrWinForm" Margin="4,0" Checked="RadioDust_Checked" />
+                        <!-- ICE (赤外線ゴミ除去) -->
+                        <GroupBox Header="ICE (赤外線ゴミ・キズ除去)">
+                            <StackPanel Margin="2">
+                                <CheckBox x:Name="ChkIceEnable" Content="Digital ICE 自動ゴミ除去を適用" IsChecked="True" Margin="0,2,0,6" Checked="ChkIceEnable_Changed" Unchecked="ChkIceEnable_Changed" />
+                                <Label Content="補正強度:" />
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                    <RadioButton x:Name="RbIceWeak" Content="弱" Margin="0,0,12,0" GroupName="IceStrength" Checked="RbIceStrength_Checked" />
+                                    <RadioButton x:Name="RbIceMedium" Content="標準" IsChecked="True" Margin="0,0,12,0" GroupName="IceStrength" Checked="RbIceStrength_Checked" />
+                                    <RadioButton x:Name="RbIceStrong" Content="強" GroupName="IceStrength" Checked="RbIceStrength_Checked" />
                                 </StackPanel>
-                            </StackPanel>
-                        </GroupBox>
-
-                        <!-- Exif Metadata Editor (Blank by default) -->
-                        <GroupBox Header="Exifメタデータ入力">
-                            <StackPanel>
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel Grid.Column="0" Margin="0,0,2,0">
-                                        <Label Content="F値 (絞り):" />
-                                        <ComboBox x:Name="ComboFNumber" IsEditable="True" Text="" LostFocus="ExifField_Changed">
-                                            <ComboBoxItem Content="1.4" />
-                                            <ComboBoxItem Content="2.0" />
-                                            <ComboBoxItem Content="2.8" />
-                                            <ComboBoxItem Content="4.0" />
-                                            <ComboBoxItem Content="5.6" />
-                                            <ComboBoxItem Content="8.0" />
-                                            <ComboBoxItem Content="11" />
-                                            <ComboBoxItem Content="16" />
-                                        </ComboBox>
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="1" Margin="2,0,0,0">
-                                        <Label Content="シャッター速度:" />
-                                        <ComboBox x:Name="ComboShutterSpeed" IsEditable="True" Text="" LostFocus="ExifField_Changed">
-                                            <ComboBoxItem Content="1/1000" />
-                                            <ComboBoxItem Content="1/500" />
-                                            <ComboBoxItem Content="1/250" />
-                                            <ComboBoxItem Content="1/125" />
-                                            <ComboBoxItem Content="1/60" />
-                                            <ComboBoxItem Content="1/30" />
-                                            <ComboBoxItem Content="1s" />
-                                        </ComboBox>
-                                    </StackPanel>
-                                </Grid>
-
-                                <Grid Margin="0,2,0,0">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel Grid.Column="0" Margin="0,0,2,0">
-                                        <Label Content="焦点距離 (mm):" />
-                                        <TextBox x:Name="TxtFocalLength" Text="" LostFocus="ExifField_Changed" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="1" Margin="2,0,0,0">
-                                        <Label Content="露出補正 (EV):" />
-                                        <TextBox x:Name="TxtExposureComp" Text="" LostFocus="ExifField_Changed" />
-                                    </StackPanel>
-                                </Grid>
-
-                                <Label Content="コマ個別メモ:" Margin="0,2,0,0" />
-                                <TextBox x:Name="TxtFrameNotes" Height="30" TextWrapping="Wrap" LostFocus="ExifField_Changed" />
-
-                                <Button x:Name="BtnCopyPrevExif" Content="前コマのExifをコピー" Height="23" Margin="0,4,0,0" Click="BtnCopyPrevExif_Click" />
+                                <Button x:Name="BtnRunIceInpaint" Content="ゴミ傷の検知と修復を実行" Click="BtnRunIceInpaint_Click" ToolTip="赤外線チャンネルを利用した自動インペイント処理を実行します" />
                             </StackPanel>
                         </GroupBox>
                     </StackPanel>
@@ -436,58 +461,64 @@
             </Border>
         </Grid>
 
-        <!-- Bottom Filmstrip Bar -->
-        <Border Grid.Row="3" Background="#F0F0F0" BorderBrush="#B0B0B0" BorderThickness="0,1,0,0" Padding="4">
+        <!-- ====================================================================== -->
+        <!-- 【下側】Film Strip (サムネイルバー)                                    -->
+        <!-- ====================================================================== -->
+        <Border Grid.Row="2" Background="#E8E8E8" BorderBrush="#B0B0B0" BorderThickness="0,1,0,0" Padding="6,4">
             <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="20" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
 
-                <StackPanel VerticalAlignment="Center" Margin="4,0,8,0">
-                    <TextBlock Text="フィルムストリップ" FontWeight="SemiBold" />
-                    <TextBlock x:Name="TxtTotalFramesCount" Text="0 コマ" FontSize="11" Foreground="#555555" />
-                </StackPanel>
+                <Grid Grid.Row="0">
+                    <TextBlock x:Name="TxtFilmstripHeader" Text="フィルムストリップ (Film Strip)" FontWeight="SemiBold" FontSize="11" VerticalAlignment="Center" />
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <TextBlock Text="コマの選択・確認" FontSize="10" Foreground="#666666" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    </StackPanel>
+                </Grid>
 
-                <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                    <ListBox x:Name="ListThumbnails" Background="#FFFFFF" BorderBrush="#B0B0B0" SelectionChanged="ListThumbnails_SelectionChanged">
-                        <ListBox.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <StackPanel Orientation="Horizontal" />
-                            </ItemsPanelTemplate>
-                        </ListBox.ItemsPanel>
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <Border Background="#FAFAFA" BorderBrush="#C0C0C0" BorderThickness="1" Margin="2" Width="90" Height="75" Padding="2">
-                                    <Grid>
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="*" />
-                                            <RowDefinition Height="Auto" />
-                                        </Grid.RowDefinitions>
+                <ListBox x:Name="LstFilmStrip" Grid.Row="1" Background="#FFFFFF" BorderBrush="#C0C0C0" BorderThickness="1"
+                         ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                         SelectionChanged="LstFilmStrip_SelectionChanged">
+                    <ListBox.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <VirtualizingStackPanel Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                    </ListBox.ItemsPanel>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Border BorderBrush="{Binding IsSelected, Converter={x:Null}}" BorderThickness="1" Background="#FAFAFA" Margin="3" Padding="3" Width="100">
+                                <StackPanel HorizontalAlignment="Center">
+                                    <!-- コマ番号バッジ -->
+                                    <TextBlock Text="{Binding FrameNumber, StringFormat='Frame #{0}'}" FontWeight="Bold" FontSize="10" HorizontalAlignment="Center" Margin="0,0,0,2" />
+                                    <!-- サムネイル画像 -->
+                                    <Border BorderBrush="#CCCCCC" BorderThickness="1" Background="#000000" Width="88" Height="60">
                                         <Image Source="{Binding Thumbnail}" Stretch="Uniform" />
-                                        <TextBlock Grid.Row="1" Text="{Binding FrameNumber, StringFormat='#{0}'}" FontWeight="SemiBold" HorizontalAlignment="Center" FontSize="10" />
-                                    </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-                </ScrollViewer>
+                                    </Border>
+                                    <TextBlock Text="{Binding CameraModel}" FontSize="9" Foreground="#666666" TextTrimming="CharacterEllipsis" HorizontalAlignment="Center" Margin="0,2,0,0" />
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
             </Grid>
         </Border>
 
-        <!-- StatusStrip -->
-        <StatusBar Grid.Row="4" Background="#F0F0F0" BorderBrush="#D4D4D4" BorderThickness="0,1,0,0">
-            <StatusBarItem Width="300">
-                <TextBlock x:Name="TxtStatusMessage" Text="準備完了" />
-            </StatusBarItem>
-            <Separator />
-            <StatusBarItem Width="160">
-                <TextBlock x:Name="TxtStatusDevice" Text="GT-X820: 待機中" />
-            </StatusBarItem>
-            <Separator />
-            <StatusBarItem HorizontalAlignment="Right">
-                <ProgressBar x:Name="ProgressBarMain" Width="160" Height="14" Visibility="Collapsed" />
-            </StatusBarItem>
-        </StatusBar>
+        <!-- ====================================================================== -->
+        <!-- 最下部 StatusStrip                                                     -->
+        <!-- ====================================================================== -->
+        <Border Grid.Row="3" Background="#F0F0F0" BorderBrush="#B0B0B0" BorderThickness="0,1,0,0" Padding="6,2">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="TxtStatus" Text="準備完了" FontSize="11" Foreground="#333333" VerticalAlignment="Center" />
+                <ProgressBar x:Name="PrgScan" Grid.Column="1" Width="140" Height="14" Margin="8,0" Visibility="Collapsed" />
+                <TextBlock x:Name="TxtInfo" Grid.Column="2" Text="Epson GT-X820 フィルムスキャナー" FontSize="11" Foreground="#555555" VerticalAlignment="Center" />
+            </Grid>
+        </Border>
     </Grid>
 </Window>

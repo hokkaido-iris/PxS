@@ -205,6 +205,70 @@ namespace IrisPxS.Services
             return src.Clone();
         }
 
+        public Mat GenerateContactSheetMat(RollSession session)
+        {
+            var allFrames = session.Strips.SelectMany(s => s.Frames).ToList();
+            var thumbs = new List<(FilmFrame frame, Mat mat)>();
+            foreach (var frame in allFrames)
+            {
+                if (File.Exists(frame.RawImagePath))
+                {
+                    using var raw = Cv2.ImRead(frame.RawImagePath, ImreadModes.Color);
+                    var r = frame.CropRect;
+                    if (r.Width > 0 && r.Height > 0 && r.X >= 0 && r.Y >= 0 && r.X + r.Width <= raw.Width && r.Y + r.Height <= raw.Height)
+                    {
+                        using var cropped = new Mat(raw, r);
+                        var inv = _negativeEngine.ConvertNegativeToPositive(cropped, frame);
+                        var rot = ApplyRotation(inv, frame.RotationDegrees);
+                        inv.Dispose();
+                        thumbs.Add((frame, rot));
+                    }
+                }
+            }
+
+            int cols = Math.Max(1, Math.Min(6, thumbs.Count));
+            int rows = (int)Math.Ceiling((double)thumbs.Count / (cols > 0 ? cols : 1));
+            int thumbW = 400;
+            int thumbH = 267;
+            int padding = 20;
+            int headerH = 120;
+            int labelH = 40;
+
+            int totalW = padding + cols * (thumbW + padding);
+            int totalH = headerH + padding + Math.Max(1, rows) * (thumbH + labelH + padding);
+
+            var sheet = new Mat(new OpenCvSharp.Size(totalW, totalH), MatType.CV_8UC3, new Scalar(25, 25, 25));
+
+            Cv2.PutText(sheet, $"IRIS PxS - CONTACT SHEET: {session.RollName}",
+                new OpenCvSharp.Point(padding, 45), HersheyFonts.HersheyComplex, 1.1, new Scalar(240, 240, 240), 2);
+
+            string subTitle = $"Film: {session.FilmStock} | Camera: {session.DefaultCamera} | Lens: {session.DefaultLens} | Total: {thumbs.Count} Frames | Scanned: {DateTime.Now:yyyy/MM/dd}";
+            Cv2.PutText(sheet, subTitle,
+                new OpenCvSharp.Point(padding, 85), HersheyFonts.HersheyPlain, 1.2, new Scalar(180, 180, 180), 1);
+
+            for (int i = 0; i < thumbs.Count; i++)
+            {
+                int r = i / cols;
+                int c = i % cols;
+                int x = padding + c * (thumbW + padding);
+                int y = headerH + padding + r * (thumbH + labelH + padding);
+
+                var (frame, thumb) = thumbs[i];
+                var roi = sheet[new OpenCvSharp.Rect(x, y, thumbW, thumbH)];
+                using var resized = new Mat();
+                Cv2.Resize(thumb, resized, new OpenCvSharp.Size(thumbW, thumbH));
+                resized.CopyTo(roi);
+                thumb.Dispose();
+
+                Cv2.Rectangle(sheet, new OpenCvSharp.Rect(x, y, thumbW, thumbH), new Scalar(80, 80, 80), 1);
+                string label = $"#{frame.FrameNumber:D2}  f/{frame.FNumber:0.#}  {frame.ShutterSpeed}s  ISO{frame.ISO}";
+                Cv2.PutText(sheet, label,
+                    new OpenCvSharp.Point(x + 5, y + thumbH + 24), HersheyFonts.HersheyPlain, 1.1, new Scalar(220, 220, 220), 1);
+            }
+
+            return sheet;
+        }
+
         private void GenerateContactSheet(RollSession session, List<(FilmFrame frame, Mat mat)> thumbs, string outputPath)
         {
             // 6列 × N行 のインデックスシート

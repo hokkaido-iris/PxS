@@ -37,13 +37,27 @@ namespace IrisPxS
 
             _exportService = new RollExportService(_negativeEngine, _dustService, _exifService);
 
-            InitializeFormatCombo();
+            InitializeFormatControls();
             InitializeProfileCombo();
+            InitializeDpiCombo();
             InitializeSession();
 
-            MainCanvas.FrameSelected += MainCanvas_FrameSelected;
-            MainCanvas.FrameModified += MainCanvas_FrameModified;
-            MainCanvas.ColorPicked += MainCanvas_ColorPicked;
+            ScanCanvas.FrameSelected += (s, frame) => SelectFrame(frame);
+            ScanCanvas.FrameModified += (s, e) =>
+            {
+                if (_selectedFrame != null)
+                {
+                    UpdateFrameThumbnail(_selectedFrame);
+                    if (RbViewSingle.IsChecked == true) UpdateSingleFramePreview();
+                }
+            };
+            ScanCanvas.ColorPicked += (s, rgb) =>
+            {
+                ScanCanvas.IsEyedropperMode = false;
+                BtnEyedropper.Background = (SolidColorBrush)FindResource("ControlLightGray");
+                ApplyBaseColor(rgb.R, rgb.G, rgb.B);
+                TxtStatus.Text = $"スポイト取得ベース色: R={rgb.R}, G={rgb.G}, B={rgb.B}";
+            };
 
             Loaded += MainWindow_Loaded;
         }
@@ -53,68 +67,156 @@ namespace IrisPxS
             await RefreshScannersAsync();
         }
 
-        private void InitializeFormatCombo()
+        private void InitializeFormatControls()
         {
-            var formats = FilmFormat.GetPresetFormats();
-            ComboFilmFormat.ItemsSource = formats;
-            ComboFilmFormat.DisplayMemberPath = nameof(FilmFormat.DisplayName);
-            ComboFilmFormat.SelectedIndex = 0; // 35mm Full
+            CmbFilmSizeCategory.Items.Clear();
+            CmbFilmSizeCategory.Items.Add("135 (35mm)");
+            CmbFilmSizeCategory.Items.Add("120 (中判)");
+            CmbFilmSizeCategory.Items.Add("127 (ベスト判)");
+            CmbFilmSizeCategory.Items.Add("110 (ポケット)");
+            CmbFilmSizeCategory.SelectedIndex = 0; // 135
+
+            UpdateFormatSubList(FilmSizeCategory.Size135);
+        }
+
+        private void UpdateFormatSubList(FilmSizeCategory category)
+        {
+            var formats = FilmFormat.GetFormatsByCategory(category);
+            CmbFilmFormat.ItemsSource = formats;
+            CmbFilmFormat.DisplayMemberPath = nameof(FilmFormat.DisplayName);
+            if (formats.Count > 0)
+            {
+                CmbFilmFormat.SelectedIndex = 0;
+            }
         }
 
         private void InitializeProfileCombo()
         {
             var profiles = FilmProfile.GetPresetProfiles();
-            ComboFilmProfiles.ItemsSource = profiles;
-            ComboFilmProfiles.DisplayMemberPath = nameof(FilmProfile.Name);
-            ComboFilmProfiles.SelectedValuePath = nameof(FilmProfile.Id);
-            ComboFilmProfiles.SelectedIndex = 0; // Portra 400
+            CmbFilmProfile.ItemsSource = profiles;
+            CmbFilmProfile.DisplayMemberPath = nameof(FilmProfile.Name);
+            CmbFilmProfile.SelectedValuePath = nameof(FilmProfile.Id);
+            CmbFilmProfile.SelectedIndex = 0; // Portra 400
+
+            // フィルム銘柄 ComboBox のプリセット候補
+            CmbFilmBrand.Items.Clear();
+            CmbFilmBrand.Items.Add("Kodak Portra 400");
+            CmbFilmBrand.Items.Add("Kodak Portra 160");
+            CmbFilmBrand.Items.Add("Kodak Gold 200");
+            CmbFilmBrand.Items.Add("Kodak UltraMax 400");
+            CmbFilmBrand.Items.Add("Kodak Tri-X 400");
+            CmbFilmBrand.Items.Add("Fujifilm Pro 400H");
+            CmbFilmBrand.Items.Add("Fujifilm Superia Premium 400");
+            CmbFilmBrand.Items.Add("Fujifilm Acros II 100");
+            CmbFilmBrand.Items.Add("CineStill 800T");
+            CmbFilmBrand.Items.Add("Ilford HP5 Plus 400");
+            CmbFilmBrand.Text = string.Empty; // デフォルト空白
+
+            // ISO感度 ComboBox
+            CmbRollIso.Items.Clear();
+            CmbRollIso.Items.Add("50");
+            CmbRollIso.Items.Add("100");
+            CmbRollIso.Items.Add("160");
+            CmbRollIso.Items.Add("200");
+            CmbRollIso.Items.Add("400");
+            CmbRollIso.Items.Add("800");
+            CmbRollIso.Items.Add("1600");
+            CmbRollIso.Items.Add("3200");
+            CmbRollIso.Text = string.Empty; // デフォルト空白
+        }
+
+        private void InitializeDpiCombo()
+        {
+            CmbDpi.Items.Clear();
+            CmbDpi.Items.Add("300 DPI (Pre-Scan用)");
+            CmbDpi.Items.Add("600 DPI");
+            CmbDpi.Items.Add("1200 DPI");
+            CmbDpi.Items.Add("2400 DPI (標準)");
+            CmbDpi.Items.Add("3200 DPI (高精細)");
+            CmbDpi.Items.Add("4800 DPI");
+            CmbDpi.Items.Add("6400 DPI (光学最高)");
+            CmbDpi.Items.Add("9600 DPI (高品位補間)");
+            CmbDpi.Items.Add("12800 DPI (最大補間)");
+            CmbDpi.SelectedIndex = 3; // 2400 DPI
         }
 
         private void InitializeSession()
         {
             _currentRoll = new RollSession();
-            
-            // 業務用システム仕様：デフォルト入力を一切入れず、ユーザーが入力する空白状態にする
-            TxtRollName.Text = string.Empty;
-            TxtRollFilmStock.Text = string.Empty;
-            TxtRollCamera.Text = string.Empty;
-            TxtRollLens.Text = string.Empty;
 
-            ListStrips.ItemsSource = _currentRoll.Strips;
-            ListThumbnails.ItemsSource = _currentRoll.AllFrames;
+            // デフォルトはすべて完全空白
+            TxtRollName.Text = string.Empty;
+            CmbFilmBrand.Text = string.Empty;
+            CmbRollIso.Text = string.Empty;
+
+            LstFilmStrip.ItemsSource = _currentRoll.AllFrames;
+            DgFramesTable.ItemsSource = _currentRoll.AllFrames;
+            UpdateFrameSummary();
         }
 
         private async Task RefreshScannersAsync()
         {
-            TxtScannerStatus.Text = "スキャナー検索中...";
-            TxtStatusMessage.Text = "スキャナーを検索しています...";
+            SetScannerStatus(ScannerState.Busy, "スキャナー検索中...");
+            TxtStatus.Text = "スキャナーを検索しています...";
 
             var scanners = await _scannerService.GetConnectedScannersAsync();
+            CmbScannerList.Items.Clear();
+
+            foreach (var sc in scanners)
+            {
+                CmbScannerList.Items.Add(sc.Name);
+            }
+
             var gtx = scanners.FirstOrDefault(s => s.IsEpsonGtx820) ?? scanners.FirstOrDefault();
 
             if (gtx != null)
             {
                 _activeScanner = gtx;
-                TxtScannerStatus.Text = $"{gtx.Name} (接続中)";
-                TxtScannerStatus.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0, 100, 0));
-                TxtStatusDevice.Text = "GT-X820: 準備完了";
-                TxtStatusMessage.Text = "スキャナーが検出されました。フィルムをセットして [PreScan] を押してください。";
+                CmbScannerList.SelectedItem = gtx.Name;
+                SetScannerStatus(ScannerState.Ready, $"{gtx.Name} (Ready)");
+                TxtStatus.Text = "EPSON GT-X820 が検出されました。フィルムをセットして [Pre-Scan] または [Scan] を実行してください。";
             }
             else
             {
-                _activeScanner = new ScannerDeviceInfo { Name = "EPSON GT-X820 (未検出)", IsConnected = false };
-                TxtScannerStatus.Text = "装置未検出 (テストモード)";
-                TxtScannerStatus.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(160, 0, 0));
-                TxtStatusDevice.Text = "装置未検出";
-                TxtStatusMessage.Text = "GT-X820 が見つかりません。USB接続を確認してください。";
+                _activeScanner = new ScannerDeviceInfo { Name = "EPSON GT-X820", IsConnected = false };
+                CmbScannerList.Items.Add("EPSON GT-X820 (未検出)");
+                CmbScannerList.SelectedIndex = 0;
+                SetScannerStatus(ScannerState.Disconnected, "未検出");
+                TxtStatus.Text = "GT-X820 が見つかりません。USBケーブルと電源を確認してください。";
+            }
+        }
+
+        private enum ScannerState { Ready, Busy, Disconnected }
+
+        private void SetScannerStatus(ScannerState state, string message)
+        {
+            switch (state)
+            {
+                case ScannerState.Ready:
+                    LedScannerStatus.Fill = new SolidColorBrush(System.Windows.Media.Color.FromRgb(40, 167, 69)); // #28A745
+                    LedScannerStatus.Stroke = new SolidColorBrush(System.Windows.Media.Color.FromRgb(30, 126, 52));
+                    TxtScannerStatus.Text = "Ready";
+                    TxtScannerStatus.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(40, 167, 69));
+                    break;
+                case ScannerState.Busy:
+                    LedScannerStatus.Fill = new SolidColorBrush(System.Windows.Media.Color.FromRgb(253, 126, 20)); // #FD7E14
+                    LedScannerStatus.Stroke = new SolidColorBrush(System.Windows.Media.Color.FromRgb(211, 84, 0));
+                    TxtScannerStatus.Text = "Busy";
+                    TxtScannerStatus.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(253, 126, 20));
+                    break;
+                case ScannerState.Disconnected:
+                    LedScannerStatus.Fill = new SolidColorBrush(System.Windows.Media.Color.FromRgb(220, 53, 69)); // #DC3545
+                    LedScannerStatus.Stroke = new SolidColorBrush(System.Windows.Media.Color.FromRgb(189, 33, 48));
+                    TxtScannerStatus.Text = "Offline";
+                    TxtScannerStatus.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(220, 53, 69));
+                    break;
             }
         }
 
         private int GetSelectedScanDpi()
         {
-            if (ComboScanDpi.SelectedItem is ComboBoxItem item && item.Content != null)
+            if (CmbDpi.SelectedItem is string text)
             {
-                string text = item.Content.ToString()!;
                 if (text.Contains("12800")) return 12800;
                 if (text.Contains("9600")) return 9600;
                 if (text.Contains("6400")) return 6400;
@@ -122,16 +224,20 @@ namespace IrisPxS
                 if (text.Contains("3200")) return 3200;
                 if (text.Contains("2400")) return 2400;
                 if (text.Contains("1200")) return 1200;
+                if (text.Contains("600")) return 600;
+                if (text.Contains("300")) return 300;
             }
             return 2400;
         }
 
         private FilmFormat GetSelectedFormat()
         {
-            return (ComboFilmFormat.SelectedItem as FilmFormat) ?? FilmFormat.GetPresetFormats()[0];
+            return (CmbFilmFormat.SelectedItem as FilmFormat) ?? FilmFormat.GetPresetFormats()[0];
         }
 
-        // --- スキャン処理 ---
+        // ======================================================================
+        // 【上側】Machine Control イベントハンドラ
+        // ======================================================================
 
         private async void BtnPreScan_Click(object sender, RoutedEventArgs e)
         {
@@ -146,23 +252,18 @@ namespace IrisPxS
 
         private async void BtnScanDialog_Click(object sender, RoutedEventArgs e)
         {
-            BtnPreScan.IsEnabled = false;
-            BtnScanCurrent.IsEnabled = false;
-            BtnScanDialog.IsEnabled = false;
-            ProgressBarMain.Visibility = Visibility.Visible;
-            ProgressBarMain.IsIndeterminate = true;
-
-            var progress = new Progress<string>(msg => TxtStatusMessage.Text = msg);
+            SetScanningUiState(true);
+            var progress = new Progress<string>(msg => TxtStatus.Text = msg);
 
             try
             {
                 var (colorMat, irMat) = await _scannerService.ScanWithDialogAsync(progress);
                 string stripName = $"Strip {_currentRoll.Strips.Count + 1}";
-                ApplyNewScanData(stripName, colorMat, irMat, 2400, ChkAutoDetectAfterScan.IsChecked == true);
+                ApplyNewScanData(stripName, colorMat, irMat, 2400, true);
             }
             catch (OperationCanceledException)
             {
-                TxtStatusMessage.Text = "スキャンをキャンセルしました。";
+                TxtStatus.Text = "スキャンをキャンセルしました。";
             }
             catch (Exception ex)
             {
@@ -170,33 +271,22 @@ namespace IrisPxS
             }
             finally
             {
-                BtnPreScan.IsEnabled = true;
-                BtnScanCurrent.IsEnabled = true;
-                BtnScanDialog.IsEnabled = true;
-                ProgressBarMain.Visibility = Visibility.Collapsed;
+                SetScanningUiState(false);
             }
         }
 
         private async Task RunScanAsync(int dpi, bool isPreScan)
         {
-            BtnPreScan.IsEnabled = false;
-            BtnScanCurrent.IsEnabled = false;
-            BtnScanDialog.IsEnabled = false;
-            ProgressBarMain.Visibility = Visibility.Visible;
-            ProgressBarMain.IsIndeterminate = true;
-
-            var progress = new Progress<string>(msg =>
-            {
-                TxtStatusMessage.Text = msg;
-            });
+            SetScanningUiState(true);
+            var progress = new Progress<string>(msg => TxtStatus.Text = msg);
 
             try
             {
-                bool isTransmissive = ChkTransmissive.IsChecked == true;
-                var (colorMat, irMat) = await _scannerService.ScanAsync(_activeScanner, dpi, isTransmissive, null, progress);
+                // フィルムスキャンのため isTransmissive = true (TPU 透過光ユニット点灯)
+                var (colorMat, irMat) = await _scannerService.ScanAsync(_activeScanner, dpi, true, null, progress);
 
                 string stripName = isPreScan ? $"PreScan_{DateTime.Now:HHmmss}" : $"Strip {_currentRoll.Strips.Count + 1}";
-                ApplyNewScanData(stripName, colorMat, irMat, dpi, ChkAutoDetectAfterScan.IsChecked == true);
+                ApplyNewScanData(stripName, colorMat, irMat, dpi, true);
             }
             catch (Exception ex)
             {
@@ -204,11 +294,18 @@ namespace IrisPxS
             }
             finally
             {
-                BtnPreScan.IsEnabled = true;
-                BtnScanCurrent.IsEnabled = true;
-                BtnScanDialog.IsEnabled = true;
-                ProgressBarMain.Visibility = Visibility.Collapsed;
+                SetScanningUiState(false);
             }
+        }
+
+        private void SetScanningUiState(bool isScanning)
+        {
+            BtnPreScan.IsEnabled = !isScanning;
+            BtnScan.IsEnabled = !isScanning;
+            BtnScannerSetting.IsEnabled = !isScanning;
+            PrgScan.Visibility = isScanning ? Visibility.Visible : Visibility.Collapsed;
+            PrgScan.IsIndeterminate = isScanning;
+            SetScannerStatus(isScanning ? ScannerState.Busy : ScannerState.Ready, isScanning ? "Scanning..." : "Ready");
         }
 
         private void ApplyNewScanData(string stripName, Mat colorMat, Mat? irMat, int dpi, bool autoDetect)
@@ -216,7 +313,6 @@ namespace IrisPxS
             _isUpdatingUi = true;
             try
             {
-                // 既存の保持Matを安全に解放
                 if (_currentScanMat != null && !_currentScanMat.IsDisposed)
                 {
                     _currentScanMat.Dispose();
@@ -226,11 +322,9 @@ namespace IrisPxS
                     _currentIrMat.Dispose();
                 }
 
-                // 新しいMatの参照をクローンして保持
                 _currentScanMat = colorMat.Clone();
                 _currentIrMat = irMat?.Clone();
 
-                // 新しいストリップを作成
                 var strip = new FilmStrip
                 {
                     Name = stripName,
@@ -238,560 +332,692 @@ namespace IrisPxS
                     ScanDpi = dpi
                 };
 
-                // 一時ストレージに保存
                 var (rawPath, irPath) = _sessionService.SaveStripImages(_currentRoll.SessionId, strip.Id, _currentScanMat, _currentIrMat);
                 strip.FullScanImagePath = rawPath;
                 strip.FullScanIrPath = irPath;
 
                 _currentRoll.Strips.Add(strip);
                 _currentStrip = strip;
-                ListStrips.SelectedItem = strip;
 
-                // キャンバスに表示
-                MainCanvas.ImageSource = _negativeEngine.MatToBitmapSource(_currentScanMat);
-                MainCanvas.Frames = strip.Frames;
+                // スキャン原稿画像を表示
+                var wpfBitmap = _currentScanMat.ToBitmapSource();
+                ScanCanvas.ImageSource = wpfBitmap;
+                ScanCanvas.Frames = _currentRoll.AllFrames;
 
                 if (autoDetect)
                 {
-                    AutoDetectFramesForCurrentStrip();
-                }
-                else
-                {
-                    MainCanvas.ResetView();
+                    PerformAutoDetectFrames();
                 }
             }
             finally
             {
                 _isUpdatingUi = false;
             }
+
+            TxtStatus.Text = $"スキャン完了: {colorMat.Width}x{colorMat.Height} px ({dpi} DPI)";
+            UpdateFrameSummary();
         }
 
-        private void AutoDetectFramesForCurrentStrip()
+        // ======================================================================
+        // 【中央】Control Panel ビュー切替 & 表示制御
+        // ======================================================================
+
+        private void ViewMode_Changed(object sender, RoutedEventArgs e)
         {
-            if (_currentScanMat == null || _currentScanMat.IsDisposed || _currentStrip == null) return;
-
-            TxtStatusMessage.Text = "コマ自動認識を実行中...";
-            var format = GetSelectedFormat();
-            var detectedRects = _detectorService.DetectFrames(_currentScanMat, format);
-
-            _currentStrip.Frames.Clear();
-
-            // ベースカラー自動検知
-            var baseColor = _negativeEngine.DetectBaseColor(_currentScanMat);
-
-            int startNumber = _currentRoll.AllFrames.Count + 1;
-            foreach (var rect in detectedRects)
+            if (RbViewFull.IsChecked == true)
             {
-                // 空白Exifで初期化（Leica等の決め打ちは一切入れない）
-                var frame = new FilmFrame
-                {
-                    StripId = _currentStrip.Id,
-                    FrameNumber = startNumber++,
-                    CropRect = rect,
-                    BaseColorR = baseColor.R,
-                    BaseColorG = baseColor.G,
-                    BaseColorB = baseColor.B,
-                    ProfileId = (ComboFilmProfiles.SelectedValue as string) ?? "portra400",
-                    CameraMake = string.Empty,
-                    CameraModel = TxtRollCamera.Text.Trim(),
-                    LensModel = TxtRollLens.Text.Trim(),
-                    ISO = _currentRoll.DefaultIso,
-                    FNumber = 0.0,
-                    ShutterSpeed = string.Empty,
-                    FocalLength = 0.0,
-                    ExposureCompensation = string.Empty,
-                    Notes = string.Empty
-                };
-
-                // コマ生画像を切り出してキャッシュ
-                int x = Math.Clamp(rect.X, 0, _currentScanMat.Width - 1);
-                int y = Math.Clamp(rect.Y, 0, _currentScanMat.Height - 1);
-                int w = Math.Clamp(rect.Width, 1, _currentScanMat.Width - x);
-                int h = Math.Clamp(rect.Height, 1, _currentScanMat.Height - y);
-
-                using (var roi = _currentScanMat[new OpenCvSharp.Rect(x, y, w, h)])
-                {
-                    frame.RawImagePath = _sessionService.SaveFrameRawImage(_currentRoll.SessionId, frame.Id, roi);
-                }
-
-                if (_currentIrMat != null && !_currentIrMat.IsDisposed && !_currentIrMat.Empty())
-                {
-                    using (var irRoi = _currentIrMat[new OpenCvSharp.Rect(x, y, w, h)])
-                    {
-                        frame.IrImagePath = _sessionService.SaveFrameRawImage(_currentRoll.SessionId, $"{frame.Id}_ir", irRoi);
-                    }
-                }
-
-                UpdateFrameThumbnail(frame);
-                _currentStrip.Frames.Add(frame);
+                GridFullView.Visibility = Visibility.Visible;
+                GridSingleView.Visibility = Visibility.Collapsed;
+                GridTableView.Visibility = Visibility.Collapsed;
+                TxtViewModeTitle.Text = "スキャン全体ビュー";
             }
-
-            SyncAllFramesList();
-            MainCanvas.ResetView();
-
-            if (_currentStrip.Frames.Count > 0)
+            else if (RbViewSingle.IsChecked == true)
             {
-                SelectFrame(_currentStrip.Frames[0]);
+                GridFullView.Visibility = Visibility.Collapsed;
+                GridSingleView.Visibility = Visibility.Visible;
+                GridTableView.Visibility = Visibility.Collapsed;
+                TxtViewModeTitle.Text = "コマ個別ビュー";
+                UpdateSingleFramePreview();
             }
-
-            TxtStatusMessage.Text = $"{detectedRects.Count} 個のコマを検出しました。";
+            else if (RbViewTable.IsChecked == true)
+            {
+                GridFullView.Visibility = Visibility.Collapsed;
+                GridSingleView.Visibility = Visibility.Collapsed;
+                GridTableView.Visibility = Visibility.Visible;
+                TxtViewModeTitle.Text = "全コマ設定表";
+                DgFramesTable.ItemsSource = null;
+                DgFramesTable.ItemsSource = _currentRoll.AllFrames;
+            }
         }
 
-        private void SyncAllFramesList()
+        private void UpdateSingleFramePreview()
         {
-            _currentRoll.AllFrames.Clear();
-            int idx = 1;
-            foreach (var s in _currentRoll.Strips)
+            if (_selectedFrame == null || _currentScanMat == null || _currentScanMat.IsDisposed)
             {
-                foreach (var f in s.Frames)
-                {
-                    f.FrameNumber = idx++;
-                    _currentRoll.AllFrames.Add(f);
-                }
+                ImgSinglePreview.Source = null;
+                TxtSingleFrameInfo.Text = "コマ未選択";
+                return;
             }
-            TxtTotalFramesCount.Text = $"全 {_currentRoll.AllFrames.Count} コマ";
-        }
 
-        private void UpdateFrameThumbnail(FilmFrame frame)
-        {
-            if (_currentScanMat == null || _currentScanMat.IsDisposed || frame.CropRect.Width <= 0 || frame.CropRect.Height <= 0) return;
+            int index = _currentRoll.AllFrames.IndexOf(_selectedFrame);
+            TxtSingleFrameInfo.Text = $"コマ {index + 1} / {_currentRoll.AllFrames.Count} (Frame #{_selectedFrame.FrameNumber})";
 
+            // ネガポジ反転・カラー補正画像をレンダリング
             try
             {
-                var r = frame.CropRect;
-                int x = Math.Clamp(r.X, 0, _currentScanMat.Width - 1);
-                int y = Math.Clamp(r.Y, 0, _currentScanMat.Height - 1);
-                int w = Math.Clamp(r.Width, 1, _currentScanMat.Width - x);
-                int h = Math.Clamp(r.Height, 1, _currentScanMat.Height - y);
+                var crop = _selectedFrame.CropRect;
+                if (crop.Width <= 0 || crop.Height <= 0) return;
 
-                using var roi = _currentScanMat[new OpenCvSharp.Rect(x, y, w, h)];
-                using var positiveMat = _negativeEngine.ConvertNegativeToPositive(roi, frame);
+                // 領域クリップ
+                int x = Math.Max(0, Math.Min(crop.X, _currentScanMat.Width - 1));
+                int y = Math.Max(0, Math.Min(crop.Y, _currentScanMat.Height - 1));
+                int w = Math.Min(crop.Width, _currentScanMat.Width - x);
+                int h = Math.Min(crop.Height, _currentScanMat.Height - y);
 
-                using var thumb = new Mat();
-                Cv2.Resize(positiveMat, thumb, new OpenCvSharp.Size(120, (int)(120 / 1.5)));
+                using var croppedMat = new Mat(_currentScanMat, new OpenCvSharp.Rect(x, y, w, h));
+                using var invertedMat = _negativeEngine.ConvertNegativeToPositive(croppedMat, _selectedFrame);
 
-                frame.Thumbnail = _negativeEngine.MatToBitmapSource(thumb);
+                // 回転適用
+                using var rotatedMat = ApplyRotation(invertedMat, _selectedFrame.RotationDegrees);
+
+                ImgSinglePreview.Source = rotatedMat.ToBitmapSource();
             }
-            catch { }
-        }
-
-        private void SelectFrame(FilmFrame frame)
-        {
-            _selectedFrame = frame;
-            MainCanvas.SelectedFrame = frame;
-            ListThumbnails.SelectedItem = frame;
-
-            UpdateRightPanelFromFrame(frame);
-            UpdatePositivePreview();
-        }
-
-        private void UpdateRightPanelFromFrame(FilmFrame frame)
-        {
-            _isUpdatingUi = true;
-            try
+            catch (Exception ex)
             {
-                TxtSelectedFrameNo.Text = $"コマ #{frame.FrameNumber:D2}";
-
-                // ベースカラー
-                BorderBaseColorPreview.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(frame.BaseColorR, frame.BaseColorG, frame.BaseColorB));
-                TxtBaseColorHex.Text = $"{frame.BaseColorHex}";
-
-                // プロファイル
-                ComboFilmProfiles.SelectedValue = frame.ProfileId;
-
-                // スライダー
-                SliderExposure.Value = frame.Exposure;
-                TxtExposureVal.Text = frame.Exposure.ToString("0.0");
-
-                SliderContrast.Value = frame.Contrast;
-                TxtContrastVal.Text = frame.Contrast.ToString("0.0");
-
-                SliderSaturation.Value = frame.Saturation;
-                TxtSaturationVal.Text = frame.Saturation.ToString("0.0");
-
-                SliderColorTemp.Value = frame.ColorTemp;
-                TxtColorTempVal.Text = frame.ColorTemp.ToString("0");
-
-                // ゴミ除去
-                ChkDustRemoval.IsChecked = frame.DustRemovalEnabled;
-                if (frame.DustRemovalStrength == 1) RadioDustWeak.IsChecked = true;
-                else if (frame.DustRemovalStrength == 3) RadioDustStrong.IsChecked = true;
-                else RadioDustNormal.IsChecked = true;
-
-                // Exif (0や未設定時は空白で表示)
-                ComboFNumber.Text = frame.FNumber > 0 ? frame.FNumber.ToString("0.#") : string.Empty;
-                ComboShutterSpeed.Text = frame.ShutterSpeed;
-                TxtFocalLength.Text = frame.FocalLength > 0 ? frame.FocalLength.ToString() : string.Empty;
-                TxtExposureComp.Text = frame.ExposureCompensation;
-                TxtFrameNotes.Text = frame.Notes;
-            }
-            finally
-            {
-                _isUpdatingUi = false;
+                System.Diagnostics.Debug.WriteLine($"UpdateSingleFramePreview error: {ex.Message}");
             }
         }
 
-        private void UpdatePositivePreview()
+        private static Mat ApplyRotation(Mat src, double degrees)
         {
-            if (_selectedFrame == null || _currentScanMat == null || _currentScanMat.IsDisposed) return;
-
-            try
+            int d = ((int)Math.Round(degrees) % 360 + 360) % 360;
+            var dst = new Mat();
+            switch (d)
             {
-                var r = _selectedFrame.CropRect;
-                int x = Math.Clamp(r.X, 0, _currentScanMat.Width - 1);
-                int y = Math.Clamp(r.Y, 0, _currentScanMat.Height - 1);
-                int w = Math.Clamp(r.Width, 1, _currentScanMat.Width - x);
-                int h = Math.Clamp(r.Height, 1, _currentScanMat.Height - y);
-
-                using var roi = _currentScanMat[new OpenCvSharp.Rect(x, y, w, h)];
-                using var positiveMat = _negativeEngine.ConvertNegativeToPositive(roi, _selectedFrame);
-
-                Mat finalMat = positiveMat;
-                if (Math.Abs(_selectedFrame.RotationDegrees) > 0.1)
-                {
-                    int deg = ((int)Math.Round(_selectedFrame.RotationDegrees) % 360 + 360) % 360;
-                    if (deg == 90) Cv2.Rotate(positiveMat, finalMat, RotateFlags.Rotate90Clockwise);
-                    else if (deg == 180) Cv2.Rotate(positiveMat, finalMat, RotateFlags.Rotate180);
-                    else if (deg == 270) Cv2.Rotate(positiveMat, finalMat, RotateFlags.Rotate90Counterclockwise);
-                }
-
-                ImgPositivePreview.Source = _negativeEngine.MatToBitmapSource(finalMat);
-                UpdateFrameThumbnail(_selectedFrame);
-            }
-            catch { }
-        }
-
-        // --- UI イベントハンドラ ---
-
-        private void MainCanvas_FrameSelected(object? sender, FilmFrame frame)
-        {
-            SelectFrame(frame);
-        }
-
-        private void MainCanvas_FrameModified(object? sender, EventArgs e)
-        {
-            if (_selectedFrame != null && _currentScanMat != null && !_currentScanMat.IsDisposed)
-            {
-                var r = _selectedFrame.CropRect;
-                int x = Math.Clamp(r.X, 0, _currentScanMat.Width - 1);
-                int y = Math.Clamp(r.Y, 0, _currentScanMat.Height - 1);
-                int w = Math.Clamp(r.Width, 1, _currentScanMat.Width - x);
-                int h = Math.Clamp(r.Height, 1, _currentScanMat.Height - y);
-
-                using var roi = _currentScanMat[new OpenCvSharp.Rect(x, y, w, h)];
-                _selectedFrame.RawImagePath = _sessionService.SaveFrameRawImage(_currentRoll.SessionId, _selectedFrame.Id, roi);
-
-                UpdatePositivePreview();
+                case 90:
+                    Cv2.Rotate(src, dst, RotateFlags.Rotate90Clockwise);
+                    return dst;
+                case 180:
+                    Cv2.Rotate(src, dst, RotateFlags.Rotate180);
+                    return dst;
+                case 270:
+                    Cv2.Rotate(src, dst, RotateFlags.Rotate90Counterclockwise);
+                    return dst;
+                default:
+                    return src.Clone();
             }
         }
 
-        private void MainCanvas_ColorPicked(object? sender, (byte R, byte G, byte B) color)
+        private void BtnPrevFrame_Click(object sender, RoutedEventArgs e)
+        {
+            if (_selectedFrame == null || _currentRoll.AllFrames.Count == 0) return;
+            int idx = _currentRoll.AllFrames.IndexOf(_selectedFrame);
+            if (idx > 0)
+            {
+                SelectFrame(_currentRoll.AllFrames[idx - 1]);
+            }
+        }
+
+        private void BtnNextFrame_Click(object sender, RoutedEventArgs e)
+        {
+            if (_selectedFrame == null || _currentRoll.AllFrames.Count == 0) return;
+            int idx = _currentRoll.AllFrames.IndexOf(_selectedFrame);
+            if (idx < _currentRoll.AllFrames.Count - 1)
+            {
+                SelectFrame(_currentRoll.AllFrames[idx + 1]);
+            }
+        }
+
+        private void BtnZoomFit_Click(object sender, RoutedEventArgs e)
+        {
+            ScanCanvas.ResetView();
+        }
+
+        private void BtnRotateFrame_Click(object sender, RoutedEventArgs e)
         {
             if (_selectedFrame != null)
             {
-                _selectedFrame.BaseColorR = color.R;
-                _selectedFrame.BaseColorG = color.G;
-                _selectedFrame.BaseColorB = color.B;
-
-                UpdateRightPanelFromFrame(_selectedFrame);
-                UpdatePositivePreview();
-                TxtStatusMessage.Text = $"ベースカラーを取得: #{color.R:X2}{color.G:X2}{color.B:X2}";
-            }
-            ToggleEyedropper.IsChecked = false;
-        }
-
-        private void ListStrips_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (_isUpdatingUi) return; // UI同期中はスキップ！
-
-            if (ListStrips.SelectedItem is FilmStrip strip)
-            {
-                if (_currentStrip == strip && _currentScanMat != null && !_currentScanMat.IsDisposed)
-                    return;
-
-                _currentStrip = strip;
-                if (!string.IsNullOrEmpty(strip.FullScanImagePath) && File.Exists(strip.FullScanImagePath))
+                _selectedFrame.RotationDegrees = (_selectedFrame.RotationDegrees + 90.0) % 360.0;
+                UpdateFrameThumbnail(_selectedFrame);
+                if (RbViewSingle.IsChecked == true)
                 {
-                    if (_currentScanMat != null && !_currentScanMat.IsDisposed)
-                    {
-                        _currentScanMat.Dispose();
-                    }
-                    _currentScanMat = Cv2.ImRead(strip.FullScanImagePath, ImreadModes.Color);
-                    MainCanvas.ImageSource = _negativeEngine.MatToBitmapSource(_currentScanMat);
-                    MainCanvas.Frames = strip.Frames;
-                    MainCanvas.ResetView();
-
-                    if (strip.Frames.Count > 0)
-                        SelectFrame(strip.Frames[0]);
+                    UpdateSingleFramePreview();
                 }
             }
         }
 
-        private void ListThumbnails_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        // ======================================================================
+        // 【中央】全コマ設定表 (DataGrid) 一括操作
+        // ======================================================================
+
+        private void BtnApplySelectedToAll_Click(object sender, RoutedEventArgs e)
         {
-            if (ListThumbnails.SelectedItem is FilmFrame frame)
+            var target = DgFramesTable.SelectedItem as FilmFrame ?? _selectedFrame;
+            if (target == null)
+            {
+                MessageBox.Show("コピー元の行（コマ）を選択してください。", "情報", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var result = MessageBox.Show(
+                $"コマ #{target.FrameNumber} のカメラ「{target.CameraModel}」、レンズ「{target.LensModel}」、F値「{target.FNumber}」、SS「{target.ShutterSpeed}」、ISO「{target.ISO}」を全コマにコピーしますか？",
+                "全コマ一括適用", MessageBoxButton.YesNo, MessageBoxImage.Question);
+
+            if (result == MessageBoxResult.Yes)
+            {
+                foreach (var f in _currentRoll.AllFrames)
+                {
+                    f.CameraModel = target.CameraModel;
+                    f.CameraMake = target.CameraMake;
+                    f.LensModel = target.LensModel;
+                    f.FNumber = target.FNumber;
+                    f.ShutterSpeed = target.ShutterSpeed;
+                    f.ISO = target.ISO;
+                    f.ExposureCompensation = target.ExposureCompensation;
+                }
+                DgFramesTable.Items.Refresh();
+                LstFilmStrip.Items.Refresh();
+                TxtStatus.Text = "全コマにメタデータを一括適用しました。";
+            }
+        }
+
+        private void BtnRenumberFrames_Click(object sender, RoutedEventArgs e)
+        {
+            var result = MessageBox.Show("すべてのコマ番号を 1 から順に連番で再採番しますか？", "コマ番号再採番", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (result == MessageBoxResult.Yes)
+            {
+                for (int i = 0; i < _currentRoll.AllFrames.Count; i++)
+                {
+                    _currentRoll.AllFrames[i].FrameNumber = i + 1;
+                }
+                DgFramesTable.Items.Refresh();
+                LstFilmStrip.Items.Refresh();
+                TxtStatus.Text = "コマ番号を再採番しました。";
+            }
+        }
+
+        private void DgFramesTable_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (DgFramesTable.SelectedItem is FilmFrame frame && frame != _selectedFrame)
             {
                 SelectFrame(frame);
             }
         }
 
-        private void ComboFilmProfiles_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        // ======================================================================
+        // 【左側】Data Control イベントハンドラ
+        // ======================================================================
+
+        private void CmbFilmSizeCategory_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (_isUpdatingUi || _selectedFrame == null) return;
-            if (ComboFilmProfiles.SelectedValue is string profileId)
+            if (CmbFilmSizeCategory.SelectedIndex < 0) return;
+            var cat = (FilmSizeCategory)CmbFilmSizeCategory.SelectedIndex;
+            UpdateFormatSubList(cat);
+        }
+
+        private void CmbFilmFormat_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            // フォーマット変更
+        }
+
+        private void CmbDpi_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+        }
+
+        private void CmbScannerList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (CmbScannerList.SelectedItem is string name && _scannerService != null)
             {
-                _selectedFrame.ProfileId = profileId;
-                UpdatePositivePreview();
-            }
-        }
-
-        private void SliderTuning_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
-        {
-            if (_isUpdatingUi || _selectedFrame == null) return;
-
-            _selectedFrame.Exposure = SliderExposure.Value;
-            TxtExposureVal.Text = SliderExposure.Value.ToString("0.0");
-
-            _selectedFrame.Contrast = SliderContrast.Value;
-            TxtContrastVal.Text = SliderContrast.Value.ToString("0.0");
-
-            _selectedFrame.Saturation = SliderSaturation.Value;
-            TxtSaturationVal.Text = SliderSaturation.Value.ToString("0.0");
-
-            _selectedFrame.ColorTemp = SliderColorTemp.Value;
-            TxtColorTempVal.Text = SliderColorTemp.Value.ToString("0");
-
-            UpdatePositivePreview();
-        }
-
-        private void BtnAutoDetectBase_Click(object sender, RoutedEventArgs e)
-        {
-            if (_selectedFrame == null || _currentScanMat == null || _currentScanMat.IsDisposed) return;
-
-            var baseCol = _negativeEngine.DetectBaseColor(_currentScanMat, _selectedFrame.CropRect);
-            _selectedFrame.BaseColorR = baseCol.R;
-            _selectedFrame.BaseColorG = baseCol.G;
-            _selectedFrame.BaseColorB = baseCol.B;
-
-            UpdateRightPanelFromFrame(_selectedFrame);
-            UpdatePositivePreview();
-            TxtStatusMessage.Text = $"ベースカラー自動検知: #{baseCol.R:X2}{baseCol.G:X2}{baseCol.B:X2}";
-        }
-
-        private void ChkDustRemoval_Checked(object sender, RoutedEventArgs e)
-        {
-            if (_isUpdatingUi || _selectedFrame == null) return;
-            _selectedFrame.DustRemovalEnabled = ChkDustRemoval.IsChecked == true;
-            UpdatePositivePreview();
-        }
-
-        private void RadioDust_Checked(object sender, RoutedEventArgs e)
-        {
-            if (_isUpdatingUi || _selectedFrame == null) return;
-            if (RadioDustWeak.IsChecked == true) _selectedFrame.DustRemovalStrength = 1;
-            else if (RadioDustStrong.IsChecked == true) _selectedFrame.DustRemovalStrength = 3;
-            else _selectedFrame.DustRemovalStrength = 2;
-            UpdatePositivePreview();
-        }
-
-        private void ExifField_Changed(object sender, RoutedEventArgs e)
-        {
-            if (_isUpdatingUi || _selectedFrame == null) return;
-
-            if (double.TryParse(ComboFNumber.Text, out double f)) _selectedFrame.FNumber = f;
-            else _selectedFrame.FNumber = 0;
-
-            _selectedFrame.ShutterSpeed = ComboShutterSpeed.Text.Trim();
-
-            if (double.TryParse(TxtFocalLength.Text, out double fl)) _selectedFrame.FocalLength = fl;
-            else _selectedFrame.FocalLength = 0;
-
-            _selectedFrame.ExposureCompensation = TxtExposureComp.Text.Trim();
-            _selectedFrame.Notes = TxtFrameNotes.Text;
-
-            ListThumbnails.Items.Refresh();
-        }
-
-        private void BtnCopyPrevExif_Click(object sender, RoutedEventArgs e)
-        {
-            if (_selectedFrame == null || _currentRoll.AllFrames.Count <= 1) return;
-
-            int currIdx = _currentRoll.AllFrames.IndexOf(_selectedFrame);
-            if (currIdx > 0)
-            {
-                var prev = _currentRoll.AllFrames[currIdx - 1];
-                _selectedFrame.FNumber = prev.FNumber;
-                _selectedFrame.ShutterSpeed = prev.ShutterSpeed;
-                _selectedFrame.FocalLength = prev.FocalLength;
-                _selectedFrame.ExposureCompensation = prev.ExposureCompensation;
-                _selectedFrame.CameraMake = prev.CameraMake;
-                _selectedFrame.CameraModel = prev.CameraModel;
-                _selectedFrame.LensModel = prev.LensModel;
-                _selectedFrame.ISO = prev.ISO;
-
-                UpdateRightPanelFromFrame(_selectedFrame);
-                ListThumbnails.Items.Refresh();
-                TxtStatusMessage.Text = $"コマ #{prev.FrameNumber:D2} から Exif を複製しました。";
-            }
-        }
-
-        private void BtnRotateCw_Click(object sender, RoutedEventArgs e)
-        {
-            if (_selectedFrame == null) return;
-            _selectedFrame.RotationDegrees = (_selectedFrame.RotationDegrees + 90) % 360;
-            UpdatePositivePreview();
-        }
-
-        private void BtnRotateCcw_Click(object sender, RoutedEventArgs e)
-        {
-            if (_selectedFrame == null) return;
-            _selectedFrame.RotationDegrees = (_selectedFrame.RotationDegrees + 270) % 360;
-            UpdatePositivePreview();
-        }
-
-        private void BtnFitView_Click(object sender, RoutedEventArgs e)
-        {
-            MainCanvas.ResetView();
-        }
-
-        private void ToggleEyedropper_Checked(object sender, RoutedEventArgs e)
-        {
-            MainCanvas.IsEyedropperMode = true;
-            TxtStatusMessage.Text = "スポイトモード: プレビュー画面の未露光フィルム部分をクリックしてください";
-        }
-
-        private void ToggleEyedropper_Unchecked(object sender, RoutedEventArgs e)
-        {
-            MainCanvas.IsEyedropperMode = false;
-        }
-
-        private void BtnAddFrame_Click(object sender, RoutedEventArgs e)
-        {
-            if (_currentStrip == null || _currentScanMat == null || _currentScanMat.IsDisposed) return;
-
-            var format = GetSelectedFormat();
-            int w = (int)(_currentScanMat.Width * 0.15);
-            int h = (int)(w / format.AspectRatio);
-            int x = (_currentScanMat.Width - w) / 2;
-            int y = (_currentScanMat.Height - h) / 2;
-
-            var frame = new FilmFrame
-            {
-                StripId = _currentStrip.Id,
-                FrameNumber = _currentRoll.AllFrames.Count + 1,
-                CropRect = new OpenCvSharp.Rect(x, y, w, h),
-                ProfileId = (ComboFilmProfiles.SelectedValue as string) ?? "portra400",
-                CameraMake = string.Empty,
-                CameraModel = TxtRollCamera.Text.Trim(),
-                LensModel = TxtRollLens.Text.Trim(),
-                ISO = _currentRoll.DefaultIso
-            };
-
-            using (var roi = _currentScanMat[frame.CropRect])
-            {
-                frame.RawImagePath = _sessionService.SaveFrameRawImage(_currentRoll.SessionId, frame.Id, roi);
-            }
-
-            UpdateFrameThumbnail(frame);
-            _currentStrip.Frames.Add(frame);
-            SyncAllFramesList();
-            SelectFrame(frame);
-        }
-
-        private void BtnDeleteFrame_Click(object sender, RoutedEventArgs e)
-        {
-            if (_selectedFrame == null || _currentStrip == null) return;
-
-            _currentStrip.Frames.Remove(_selectedFrame);
-            SyncAllFramesList();
-
-            if (_currentStrip.Frames.Count > 0)
-                SelectFrame(_currentStrip.Frames[0]);
-            else
-                _selectedFrame = null;
-
-            MainCanvas.InvalidateVisual();
-        }
-
-        private void BtnAutoDetectFrames_Click(object sender, RoutedEventArgs e)
-        {
-            AutoDetectFramesForCurrentStrip();
-        }
-
-        private void ComboFilmFormat_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-        }
-
-        private async void BtnRefreshScanner_Click(object sender, RoutedEventArgs e)
-        {
-            await RefreshScannersAsync();
-        }
-
-        private void BtnOpenImage_Click(object sender, RoutedEventArgs e)
-        {
-            var dlg = new OpenFileDialog
-            {
-                Title = "フィルムスキャン画像を開く",
-                Filter = "画像ファイル (*.jpg;*.jpeg;*.tif;*.tiff;*.png;*.bmp)|*.jpg;*.jpeg;*.tif;*.tiff;*.png;*.bmp|すべてのファイル (*.*)|*.*"
-            };
-
-            if (dlg.ShowDialog() == true)
-            {
-                var mat = Cv2.ImRead(dlg.FileName, ImreadModes.Color);
-                if (!mat.Empty())
-                {
-                    string name = Path.GetFileNameWithoutExtension(dlg.FileName);
-                    ApplyNewScanData(name, mat, null, 2400, true);
-                }
+                // 選択スキャナー切り替え
             }
         }
 
         private void TxtRollName_TextChanged(object sender, TextChangedEventArgs e)
         {
-            if (_currentRoll != null)
-            {
-                _currentRoll.RollName = TxtRollName.Text;
-            }
+            _currentRoll.RollName = TxtRollName.Text;
         }
 
-        private void TxtRollFilmStock_TextChanged(object sender, TextChangedEventArgs e)
+        private void CmbFilmBrand_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (_currentRoll != null)
+            if (CmbFilmBrand.SelectedItem is string brand)
             {
-                _currentRoll.FilmStock = TxtRollFilmStock.Text;
+                _currentRoll.FilmStock = brand;
             }
         }
 
-        // --- 一括エクスポート ---
+        private void CmbRollIso_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (CmbRollIso.SelectedItem is string isoStr && int.TryParse(isoStr, out int iso))
+            {
+                _currentRoll.DefaultIso = iso;
+            }
+        }
+
+        private void BtnAutoDetectFrames_Click(object sender, RoutedEventArgs e)
+        {
+            PerformAutoDetectFrames();
+        }
+
+        private void PerformAutoDetectFrames()
+        {
+            if (_currentScanMat == null || _currentScanMat.IsDisposed)
+            {
+                MessageBox.Show("スキャン画像または読み込み画像がありません。[Pre-Scan] を実行してください。", "案内", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var format = GetSelectedFormat();
+            TxtStatus.Text = $"コマ自動認識を実行中 ({format.DisplayName})...";
+
+            var detectedRects = _detectorService.DetectFrames(_currentScanMat, format);
+
+            if (_currentStrip == null)
+            {
+                _currentStrip = new FilmStrip { Name = "Strip 1", ScanDpi = GetSelectedScanDpi() };
+                _currentRoll.Strips.Add(_currentStrip);
+            }
+
+            _currentStrip.Frames.Clear();
+            _currentRoll.AllFrames.Clear();
+
+            int startNumber = 1;
+            foreach (var r in detectedRects)
+            {
+                var frame = new FilmFrame
+                {
+                    FrameNumber = startNumber++,
+                    StripId = _currentStrip.Id,
+                    CropRect = r,
+                    RawImagePath = _currentStrip.FullScanImagePath,
+                    IrImagePath = _currentStrip.FullScanIrPath,
+                    CameraModel = "",
+                    LensModel = "",
+                    FNumber = 0.0,
+                    ShutterSpeed = "",
+                    ISO = _currentRoll.DefaultIso,
+                    ProfileId = (CmbFilmProfile.SelectedValue as string) ?? "portra400"
+                };
+
+                // ベースカラー初期値
+                if (_selectedFrame != null)
+                {
+                    frame.BaseColorR = _selectedFrame.BaseColorR;
+                    frame.BaseColorG = _selectedFrame.BaseColorG;
+                    frame.BaseColorB = _selectedFrame.BaseColorB;
+                }
+
+                _currentStrip.Frames.Add(frame);
+                _currentRoll.AllFrames.Add(frame);
+                UpdateFrameThumbnail(frame);
+            }
+
+            ScanCanvas.Frames = _currentRoll.AllFrames;
+            ScanCanvas.InvalidateVisual();
+            if (_currentRoll.AllFrames.Count > 0)
+            {
+                SelectFrame(_currentRoll.AllFrames[0]);
+            }
+
+            UpdateFrameSummary();
+            TxtStatus.Text = $"{detectedRects.Count} 個のコマを自動検出しました。";
+        }
+
+        private void BtnAddFrame_Click(object sender, RoutedEventArgs e)
+        {
+            if (_currentScanMat == null || _currentScanMat.IsDisposed)
+            {
+                MessageBox.Show("スキャン画像がありません。", "情報", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            if (_currentStrip == null)
+            {
+                _currentStrip = new FilmStrip { Name = "Strip 1", ScanDpi = GetSelectedScanDpi() };
+                _currentRoll.Strips.Add(_currentStrip);
+            }
+
+            var format = GetSelectedFormat();
+            int defaultW = (int)(_currentScanMat.Width * 0.25);
+            int defaultH = (int)(defaultW / format.AspectRatio);
+
+            int nextNum = _currentRoll.AllFrames.Count > 0 ? _currentRoll.AllFrames.Max(f => f.FrameNumber) + 1 : 1;
+            var newFrame = new FilmFrame
+            {
+                FrameNumber = nextNum,
+                StripId = _currentStrip.Id,
+                CropRect = new OpenCvSharp.Rect(50, 50, defaultW, defaultH),
+                RawImagePath = _currentStrip.FullScanImagePath,
+                IrImagePath = _currentStrip.FullScanIrPath,
+                CameraModel = "",
+                LensModel = "",
+                ProfileId = (CmbFilmProfile.SelectedValue as string) ?? "portra400"
+            };
+
+            _currentStrip.Frames.Add(newFrame);
+            _currentRoll.AllFrames.Add(newFrame);
+
+            UpdateFrameThumbnail(newFrame);
+            ScanCanvas.Frames = _currentRoll.AllFrames;
+            ScanCanvas.InvalidateVisual();
+            SelectFrame(newFrame);
+            UpdateFrameSummary();
+        }
+
+        private void BtnDeleteFrame_Click(object sender, RoutedEventArgs e)
+        {
+            if (_selectedFrame != null && _currentStrip != null)
+            {
+                _currentStrip.Frames.Remove(_selectedFrame);
+                _currentRoll.AllFrames.Remove(_selectedFrame);
+                ScanCanvas.Frames = _currentRoll.AllFrames;
+                ScanCanvas.InvalidateVisual();
+
+                if (_currentRoll.AllFrames.Count > 0)
+                {
+                    SelectFrame(_currentRoll.AllFrames[0]);
+                }
+                else
+                {
+                    _selectedFrame = null;
+                }
+                UpdateFrameSummary();
+            }
+        }
+
+        // ======================================================================
+        // 【右側】Image Control (カラー補正 & ICE)
+        // ======================================================================
+
+        private void BtnAutoBaseColor_Click(object sender, RoutedEventArgs e)
+        {
+            if (_currentScanMat == null || _currentScanMat.IsDisposed || _selectedFrame == null)
+            {
+                MessageBox.Show("コマ枠を選択してください。", "情報", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var detectedColor = _negativeEngine.DetectBaseColor(_currentScanMat, _selectedFrame.CropRect);
+            ApplyBaseColor(detectedColor.R, detectedColor.G, detectedColor.B);
+            TxtStatus.Text = $"ベースカラーを自動検知しました (R:{detectedColor.R} G:{detectedColor.G} B:{detectedColor.B})";
+        }
+
+        private void BtnEyedropper_Click(object sender, RoutedEventArgs e)
+        {
+            ScanCanvas.IsEyedropperMode = !ScanCanvas.IsEyedropperMode;
+            BtnEyedropper.Background = ScanCanvas.IsEyedropperMode ? (SolidColorBrush)FindResource("ButtonPressed") : (SolidColorBrush)FindResource("ControlLightGray");
+            TxtStatus.Text = ScanCanvas.IsEyedropperMode ? "スポイトモード: 画面上の未露光部（オレンジマスク）をクリックしてください。" : "準備完了";
+        }
+
+        private void ScanCanvas_ColorPicked(byte r, byte g, byte b)
+        {
+            ScanCanvas.IsEyedropperMode = false;
+            BtnEyedropper.Background = (SolidColorBrush)FindResource("ControlLightGray");
+            ApplyBaseColor(r, g, b);
+            TxtStatus.Text = $"スポイト取得ベース色: R={r}, G={g}, B={b}";
+        }
+
+        private void ApplyBaseColor(byte r, byte g, byte b)
+        {
+            if (_selectedFrame != null)
+            {
+                _selectedFrame.BaseColorR = r;
+                _selectedFrame.BaseColorG = g;
+                _selectedFrame.BaseColorB = b;
+            }
+
+            RectBaseColorSwatch.Fill = new SolidColorBrush(System.Windows.Media.Color.FromRgb(r, g, b));
+            TxtBaseColorRgb.Text = $"R: {r}  G: {g}  B: {b}";
+
+            if (_selectedFrame != null)
+            {
+                UpdateFrameThumbnail(_selectedFrame);
+                if (RbViewSingle.IsChecked == true) UpdateSingleFramePreview();
+            }
+        }
+
+        private void CmbFilmProfile_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isUpdatingUi || _selectedFrame == null) return;
+            if (CmbFilmProfile.SelectedValue is string pid)
+            {
+                _selectedFrame.ProfileId = pid;
+                UpdateFrameThumbnail(_selectedFrame);
+                if (RbViewSingle.IsChecked == true) UpdateSingleFramePreview();
+            }
+        }
+
+        private void ToneSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_isUpdatingUi || _selectedFrame == null) return;
+
+            TxtExposureVal.Text = SldExposure.Value.ToString("F1");
+            TxtContrastVal.Text = SldContrast.Value.ToString("F2");
+            TxtSaturationVal.Text = SldSaturation.Value.ToString("F2");
+            TxtColorTempVal.Text = SldColorTemp.Value.ToString("F0");
+            TxtTintVal.Text = SldTint.Value.ToString("F0");
+
+            _selectedFrame.Exposure = SldExposure.Value;
+            _selectedFrame.Contrast = SldContrast.Value;
+            _selectedFrame.Saturation = SldSaturation.Value;
+            _selectedFrame.ColorTemp = SldColorTemp.Value;
+            _selectedFrame.Tint = SldTint.Value;
+
+            UpdateFrameThumbnail(_selectedFrame);
+            if (RbViewSingle.IsChecked == true) UpdateSingleFramePreview();
+        }
+
+        private void BtnResetColor_Click(object sender, RoutedEventArgs e)
+        {
+            _isUpdatingUi = true;
+            try
+            {
+                SldExposure.Value = 0.0;
+                SldContrast.Value = 1.0;
+                SldSaturation.Value = 1.0;
+                SldColorTemp.Value = 0.0;
+                SldTint.Value = 0.0;
+
+                TxtExposureVal.Text = "0.0";
+                TxtContrastVal.Text = "1.0";
+                TxtSaturationVal.Text = "1.0";
+                TxtColorTempVal.Text = "0";
+                TxtTintVal.Text = "0";
+
+                if (_selectedFrame != null)
+                {
+                    _selectedFrame.Exposure = 0.0;
+                    _selectedFrame.Contrast = 1.0;
+                    _selectedFrame.Saturation = 1.0;
+                    _selectedFrame.ColorTemp = 0.0;
+                    _selectedFrame.Tint = 0.0;
+                    UpdateFrameThumbnail(_selectedFrame);
+                    if (RbViewSingle.IsChecked == true) UpdateSingleFramePreview();
+                }
+            }
+            finally
+            {
+                _isUpdatingUi = false;
+            }
+        }
+
+        private void ChkIceEnable_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_selectedFrame != null)
+            {
+                _selectedFrame.DustRemovalEnabled = ChkIceEnable.IsChecked == true;
+            }
+        }
+
+        private void RbIceStrength_Checked(object sender, RoutedEventArgs e)
+        {
+            if (_selectedFrame == null) return;
+            if (RbIceWeak.IsChecked == true) _selectedFrame.DustRemovalStrength = 1;
+            else if (RbIceMedium.IsChecked == true) _selectedFrame.DustRemovalStrength = 2;
+            else if (RbIceStrong.IsChecked == true) _selectedFrame.DustRemovalStrength = 3;
+        }
+
+        private void BtnRunIceInpaint_Click(object sender, RoutedEventArgs e)
+        {
+            if (_selectedFrame == null || _currentScanMat == null || _currentScanMat.IsDisposed)
+            {
+                MessageBox.Show("コマを選択してください。", "情報", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            TxtStatus.Text = $"コマ #{_selectedFrame.FrameNumber} の赤外線ゴミ除去処理を実行中...";
+            UpdateFrameThumbnail(_selectedFrame);
+            if (RbViewSingle.IsChecked == true) UpdateSingleFramePreview();
+            TxtStatus.Text = "ゴミ除去処理が完了しました。";
+        }
+
+        // ======================================================================
+        // コマ選択 & サムネイル更新
+        // ======================================================================
+
+        private void ScanCanvas_FrameSelected(FilmFrame frame)
+        {
+            SelectFrame(frame);
+        }
+
+        private void ScanCanvas_FrameModified(FilmFrame frame)
+        {
+            UpdateFrameThumbnail(frame);
+            if (RbViewSingle.IsChecked == true) UpdateSingleFramePreview();
+        }
+
+        private void LstFilmStrip_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (LstFilmStrip.SelectedItem is FilmFrame frame && frame != _selectedFrame)
+            {
+                SelectFrame(frame);
+            }
+        }
+
+        private void SelectFrame(FilmFrame frame)
+        {
+            _isUpdatingUi = true;
+            try
+            {
+                _selectedFrame = frame;
+
+                foreach (var f in _currentRoll.AllFrames)
+                {
+                    f.IsSelected = (f == frame);
+                }
+
+                LstFilmStrip.SelectedItem = frame;
+                DgFramesTable.SelectedItem = frame;
+                ScanCanvas.SelectedFrame = frame;
+
+                // コントロールへ値を反映
+                RectBaseColorSwatch.Fill = new SolidColorBrush(System.Windows.Media.Color.FromRgb(frame.BaseColorR, frame.BaseColorG, frame.BaseColorB));
+                TxtBaseColorRgb.Text = $"R: {frame.BaseColorR}  G: {frame.BaseColorG}  B: {frame.BaseColorB}";
+
+                CmbFilmProfile.SelectedValue = frame.ProfileId;
+
+                SldExposure.Value = frame.Exposure;
+                SldContrast.Value = frame.Contrast;
+                SldSaturation.Value = frame.Saturation;
+                SldColorTemp.Value = frame.ColorTemp;
+                SldTint.Value = frame.Tint;
+
+                TxtExposureVal.Text = frame.Exposure.ToString("F1");
+                TxtContrastVal.Text = frame.Contrast.ToString("F2");
+                TxtSaturationVal.Text = frame.Saturation.ToString("F2");
+                TxtColorTempVal.Text = frame.ColorTemp.ToString("F0");
+                TxtTintVal.Text = frame.Tint.ToString("F0");
+
+                ChkIceEnable.IsChecked = frame.DustRemovalEnabled;
+                if (frame.DustRemovalStrength == 1) RbIceWeak.IsChecked = true;
+                else if (frame.DustRemovalStrength == 3) RbIceStrong.IsChecked = true;
+                else RbIceMedium.IsChecked = true;
+
+                if (RbViewSingle.IsChecked == true)
+                {
+                    UpdateSingleFramePreview();
+                }
+            }
+            finally
+            {
+                _isUpdatingUi = false;
+            }
+        }
+
+        private void UpdateFrameThumbnail(FilmFrame frame)
+        {
+            if (_currentScanMat == null || _currentScanMat.IsDisposed) return;
+            try
+            {
+                var crop = frame.CropRect;
+                if (crop.Width <= 0 || crop.Height <= 0) return;
+
+                int x = Math.Max(0, Math.Min(crop.X, _currentScanMat.Width - 1));
+                int y = Math.Max(0, Math.Min(crop.Y, _currentScanMat.Height - 1));
+                int w = Math.Min(crop.Width, _currentScanMat.Width - x);
+                int h = Math.Min(crop.Height, _currentScanMat.Height - y);
+
+                using var croppedMat = new Mat(_currentScanMat, new OpenCvSharp.Rect(x, y, w, h));
+                using var invertedMat = _negativeEngine.ConvertNegativeToPositive(croppedMat, frame);
+                using var rotatedMat = ApplyRotation(invertedMat, frame.RotationDegrees);
+
+                // サムネイル用に小さくリサイズ
+                int thumbW = 160;
+                int thumbH = Math.Max(1, (int)(thumbW * ((double)rotatedMat.Height / rotatedMat.Width)));
+                using var thumbMat = new Mat();
+                Cv2.Resize(rotatedMat, thumbMat, new OpenCvSharp.Size(thumbW, thumbH));
+
+                frame.Thumbnail = thumbMat.ToBitmapSource();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"UpdateFrameThumbnail error: {ex.Message}");
+            }
+        }
+
+        private void UpdateFrameSummary()
+        {
+            int count = _currentRoll.AllFrames.Count;
+            TxtFrameSummary.Text = $"{count} コマ登録";
+            TxtFilmstripHeader.Text = $"フィルムストリップ (Film Strip - 全 {count} コマ)";
+        }
+
+        // ======================================================================
+        // エクスポート (書き出し)
+        // ======================================================================
 
         private async void BtnExportFolder_Click(object sender, RoutedEventArgs e)
         {
             if (_currentRoll.AllFrames.Count == 0)
             {
-                MessageBox.Show("エクスポートするコマがありません。スキャンまたはコマ割りを行ってください。", "書き出し", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show("エクスポートするコマがありません。[Pre-Scan] でコマを検出してください。", "案内", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
-            var dlg = new OpenFolderDialog
+            var dialog = new OpenFolderDialog
             {
                 Title = "書き出し先フォルダを選択してください"
             };
 
-            if (dlg.ShowDialog() == true)
+            if (dialog.ShowDialog() == true)
             {
-                string rollFolder = string.IsNullOrWhiteSpace(_currentRoll.RollName) ? "Roll_Export" : _currentRoll.RollName;
-                string targetFolder = Path.Combine(dlg.FolderName, rollFolder);
-                var options = new ExportOptions
-                {
-                    OutputDirectory = targetFolder,
-                    Format = GetSelectedExportFormat(),
-                    GenerateContactSheet = ChkContactSheet.IsChecked == true
-                };
+                string targetFolder = dialog.FolderName;
+                SetScanningUiState(true);
+                var progress = new Progress<(string message, double progress)>(p => TxtStatus.Text = p.message);
 
-                await ExecuteExportAsync(async (prog) =>
+                try
                 {
-                    await _exportService.ExportToFolderAsync(_currentRoll, options, prog);
-                }, $"フォルダへの一括書き出しが完了しました:\n{targetFolder}");
+                    var options = new ExportOptions { OutputDirectory = targetFolder };
+                    await _exportService.ExportToFolderAsync(_currentRoll, options, progress);
+                    MessageBox.Show($"フォルダへの一括書き出しが完了しました:\n{targetFolder}", "書き出し成功", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"書き出し中にエラーが発生しました: {ex.Message}", "エクスポートエラー", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+                finally
+                {
+                    SetScanningUiState(false);
+                }
             }
         }
 
@@ -799,93 +1025,75 @@ namespace IrisPxS
         {
             if (_currentRoll.AllFrames.Count == 0)
             {
-                MessageBox.Show("エクスポートするコマがありません。スキャンまたはコマ割りを行ってください。", "書き出し", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show("エクスポートするコマがありません。", "案内", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
-            string defaultZipName = string.IsNullOrWhiteSpace(_currentRoll.RollName) ? "Roll_Export.zip" : $"{_currentRoll.RollName}.zip";
-
-            var dlg = new SaveFileDialog
+            var sfd = new SaveFileDialog
             {
-                Title = "ロールZIPアーカイブの保存先",
-                Filter = "ZIP アーカイブ (*.zip)|*.zip",
-                FileName = defaultZipName
+                Title = "ZIPアーカイブの保存先を指定してください",
+                Filter = "ZIP Archive (*.zip)|*.zip",
+                FileName = $"Roll_{DateTime.Now:yyyyMMdd_HHmmss}.zip"
             };
 
-            if (dlg.ShowDialog() == true)
+            if (sfd.ShowDialog() == true)
             {
-                var options = new ExportOptions
+                SetScanningUiState(true);
+                var progress = new Progress<(string message, double progress)>(p => TxtStatus.Text = p.message);
+
+                try
                 {
-                    OutputZipPath = dlg.FileName,
-                    Format = GetSelectedExportFormat(),
-                    GenerateContactSheet = ChkContactSheet.IsChecked == true
-                };
-
-                await ExecuteExportAsync(async (prog) =>
+                    var options = new ExportOptions { OutputZipPath = sfd.FileName };
+                    await _exportService.ExportToZipAsync(_currentRoll, options, progress);
+                    MessageBox.Show($"ZIPアーカイブへの書き出しが完了しました:\n{sfd.FileName}", "書き出し成功", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                catch (Exception ex)
                 {
-                    await _exportService.ExportToZipAsync(_currentRoll, options, prog);
-                }, $"ZIPアーカイブへの一括書き出しが完了しました:\n{dlg.FileName}");
+                    MessageBox.Show($"ZIP書き出し中にエラーが発生しました: {ex.Message}", "エクスポートエラー", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+                finally
+                {
+                    SetScanningUiState(false);
+                }
             }
         }
 
-        private string GetSelectedExportFormat()
+        private async void BtnContactSheet_Click(object sender, RoutedEventArgs e)
         {
-            if (ComboExportFormat.SelectedItem is ComboBoxItem item && item.Content != null)
+            if (_currentRoll.AllFrames.Count == 0)
             {
-                string t = item.Content.ToString()!;
-                if (t.Contains("TIFF")) return "TIFF";
-                if (t.Contains("PNG")) return "PNG";
+                MessageBox.Show("コマがありません。", "案内", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
             }
-            return "JPEG";
-        }
 
-        private async Task ExecuteExportAsync(Func<IProgress<(string msg, double pct)>, Task> exportAction, string successMsg)
-        {
-            BtnExportFolder.IsEnabled = false;
-            BtnExportZip.IsEnabled = false;
-            ProgressBarMain.Visibility = Visibility.Visible;
-            ProgressBarMain.IsIndeterminate = false;
-
-            var progress = new Progress<(string msg, double pct)>(update =>
+            var sfd = new SaveFileDialog
             {
-                TxtStatusMessage.Text = update.msg;
-                ProgressBarMain.Value = update.pct * 100.0;
-            });
+                Title = "コンタクトシートの保存先",
+                Filter = "JPEG Image (*.jpg)|*.jpg|TIFF Image (*.tif)|*.tif",
+                FileName = $"ContactSheet_{DateTime.Now:yyyyMMdd_HHmmss}.jpg"
+            };
 
-            try
+            if (sfd.ShowDialog() == true)
             {
-                await exportAction(progress);
-                MessageBox.Show(successMsg, "書き出し完了", MessageBoxButton.OK, MessageBoxImage.Information);
+                SetScanningUiState(true);
+                try
+                {
+                    await Task.Run(() =>
+                    {
+                        using var csMat = _exportService.GenerateContactSheetMat(_currentRoll);
+                        Cv2.ImWrite(sfd.FileName, csMat);
+                    });
+                    MessageBox.Show($"コンタクトシートを作成・保存しました:\n{sfd.FileName}", "完了", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"コンタクトシート作成エラー: {ex.Message}", "エラー", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+                finally
+                {
+                    SetScanningUiState(false);
+                }
             }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"書き出し中にエラーが発生しました: {ex.Message}", "エラー", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-            finally
-            {
-                BtnExportFolder.IsEnabled = true;
-                BtnExportZip.IsEnabled = true;
-                ProgressBarMain.Visibility = Visibility.Collapsed;
-                ProgressBarMain.Value = 0;
-                TxtStatusMessage.Text = "準備完了";
-            }
-        }
-
-        private void MenuExit_Click(object sender, RoutedEventArgs e)
-        {
-            Close();
-        }
-
-        private void MenuAbout_Click(object sender, RoutedEventArgs e)
-        {
-            MessageBox.Show(
-                "IRIS PxS - Epson GT-X820 フィルムスキャニングシステム\n\n" +
-                "バージョン: 1.2.0 (Professional Build)\n" +
-                "対応機器: EPSON GT-X820 フラットベッドスキャナー\n" +
-                "機能: 透過原稿スキャン (最大 12800 DPI), 赤外線ゴミ傷除去 (Digital ICE), 自動コマ検出, NP変換, ロール一括書き出し (Folder/ZIP)\n",
-                "バージョン情報",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
         }
     }
 }
