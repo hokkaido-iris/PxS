@@ -165,10 +165,10 @@ namespace IrisPxS.Services
                         SetWiaProperty(item, WiaPropertyBitsPerPixel, 24);
 
                         // 透過原稿ユニット (TPU) 設定
-                        if (isTransmissive)
-                        {
-                            SetWiaProperty(item, WiaPropertyMediaType, 2); // Transmissive (透過光)
-                        }
+                        // GT-X820 の WIA ドライバ仕様: 128 = 透過原稿 (フィルムモード/フタ側TPUランプ点灯), 2 = 反射原稿 (通常原稿台)
+                        int mediaTypeValue = isTransmissive ? 128 : 2;
+                        SetWiaProperty(item, WiaPropertyMediaType, mediaTypeValue);
+                        progress?.Report($"原稿モード設定: {(isTransmissive ? "透過原稿 (フィルムモード / TPU点灯)" : "反射原稿 (通常原稿台)")} [値={mediaTypeValue}]");
 
                         // 解像度設定 (12800dpiなどの高解像度指定)
                         // スキャナーの光学制限を超える場合はドライバが最大値に設定するか補間を行う
@@ -230,6 +230,51 @@ namespace IrisPxS.Services
                 {
                     System.Diagnostics.Debug.WriteLine($"WIA Scan Error: {ex}");
                     throw new InvalidOperationException($"スキャナー処理エラー: {ex.Message}", ex);
+                }
+            });
+        }
+
+        /// <summary>
+        /// スキャナーの標準プレビュー・設定ダイアログを表示してスキャンを実行
+        /// </summary>
+        public async Task<(Mat ColorMat, Mat? IrMat)> ScanWithDialogAsync(IProgress<string>? progress = null)
+        {
+            return await RunInStaAsync(() =>
+            {
+                progress?.Report("スキャナーダイアログを表示中...");
+                try
+                {
+                    dynamic commonDialog = Activator.CreateInstance(Type.GetTypeFromProgID("WIA.CommonDialog")!)!;
+                    // DeviceType: 1 (Scanner), Intent: 1 (Color), Bias: 0 (MaximizeQuality), Format: BMP
+                    dynamic imageFile = commonDialog.ShowAcquireImage(1, 1, 0, WiaFormatBMP, false, true, false);
+
+                    if (imageFile == null)
+                    {
+                        throw new OperationCanceledException("スキャンがキャンセルされました。");
+                    }
+
+                    progress?.Report("画像データ保存・読込中...");
+                    string tempScanPath = Path.Combine(Path.GetTempPath(), $"IrisPxS_ScanDlg_{Guid.NewGuid():N}.bmp");
+                    if (File.Exists(tempScanPath)) File.Delete(tempScanPath);
+
+                    imageFile.SaveFile(tempScanPath);
+
+                    var colorMat = Cv2.ImRead(tempScanPath, ImreadModes.Color);
+                    try { File.Delete(tempScanPath); } catch { }
+
+                    if (colorMat.Empty())
+                    {
+                        throw new InvalidOperationException("スキャン画像データを読み込めませんでした。");
+                    }
+
+                    Mat irMat = ExtractOrSimulateIrChannel(colorMat);
+                    progress?.Report("スキャン完了！");
+                    return (colorMat, irMat);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"WIA Dialog Scan Error: {ex}");
+                    throw new InvalidOperationException($"スキャナーダイアログエラー: {ex.Message}", ex);
                 }
             });
         }

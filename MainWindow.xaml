@@ -148,17 +148,18 @@
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button x:Name="BtnPreScan" Content="PreScan (予備スキャン)" Width="140" FontWeight="SemiBold" Click="BtnPreScan_Click" />
-                    <Button x:Name="BtnScanCurrent" Content="Scan (本スキャン)" Width="120" FontWeight="SemiBold" Margin="4,0,12,0" Click="BtnScanCurrent_Click" />
-                    <Button x:Name="BtnOpenImage" Content="画像読込..." Width="80" Click="BtnOpenImage_Click" />
+                    <Button x:Name="BtnPreScan" Content="PreScan (予備)" Width="105" FontWeight="SemiBold" Click="BtnPreScan_Click" />
+                    <Button x:Name="BtnScanCurrent" Content="Scan (本スキャン)" Width="110" FontWeight="SemiBold" Margin="4,0" Click="BtnScanCurrent_Click" />
+                    <Button x:Name="BtnScanDialog" Content="スキャナーUI..." Width="95" Margin="4,0" Click="BtnScanDialog_Click" />
+                    <Button x:Name="BtnOpenImage" Content="画像読込..." Width="75" Margin="4,0,10,0" Click="BtnOpenImage_Click" />
                 </StackPanel>
 
-                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0">
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="6,0">
                     <TextBlock Text="接続機器: " VerticalAlignment="Center" FontWeight="SemiBold" />
-                    <TextBlock x:Name="TxtScannerStatus" Text="EPSON GT-X820 (Ready)" VerticalAlignment="Center" Foreground="#005500" Margin="0,0,16,0" />
+                    <TextBlock x:Name="TxtScannerStatus" Text="EPSON GT-X820 (Ready)" VerticalAlignment="Center" Foreground="#005500" Margin="0,0,12,0" />
 
-                    <TextBlock Text="フィルム規格: " VerticalAlignment="Center" FontWeight="SemiBold" />
-                    <ComboBox x:Name="ComboFilmFormat" Width="200" SelectionChanged="ComboFilmFormat_SelectionChanged" />
+                    <TextBlock Text="規格: " VerticalAlignment="Center" FontWeight="SemiBold" />
+                    <ComboBox x:Name="ComboFilmFormat" Width="180" SelectionChanged="ComboFilmFormat_SelectionChanged" />
                 </StackPanel>
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
@@ -219,7 +220,7 @@
                                     <ComboBoxItem Content="12800 DPI (最大補間)" />
                                 </ComboBox>
 
-                                <CheckBox x:Name="ChkTransmissive" Content="透過原稿ユニット (TPU) 使用" IsChecked="True" Margin="0,6,0,2" />
+                                <CheckBox x:Name="ChkTransmissive" Content="透過原稿ユニット点灯 (フィルムモード)" IsChecked="True" FontWeight="SemiBold" Margin="0,6,0,2" />
                                 <CheckBox x:Name="ChkAutoDetectAfterScan" Content="スキャン後自動コマ割り" IsChecked="True" Margin="0,0,0,2" />
                             </StackPanel>
                         </GroupBox>

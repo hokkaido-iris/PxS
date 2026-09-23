@@ -144,10 +144,44 @@ namespace IrisPxS
             await RunScanAsync(dpi, isPreScan: false);
         }
 
+        private async void BtnScanDialog_Click(object sender, RoutedEventArgs e)
+        {
+            BtnPreScan.IsEnabled = false;
+            BtnScanCurrent.IsEnabled = false;
+            BtnScanDialog.IsEnabled = false;
+            ProgressBarMain.Visibility = Visibility.Visible;
+            ProgressBarMain.IsIndeterminate = true;
+
+            var progress = new Progress<string>(msg => TxtStatusMessage.Text = msg);
+
+            try
+            {
+                var (colorMat, irMat) = await _scannerService.ScanWithDialogAsync(progress);
+                string stripName = $"Strip {_currentRoll.Strips.Count + 1}";
+                ApplyNewScanData(stripName, colorMat, irMat, 2400, ChkAutoDetectAfterScan.IsChecked == true);
+            }
+            catch (OperationCanceledException)
+            {
+                TxtStatusMessage.Text = "スキャンをキャンセルしました。";
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"スキャン中にエラーが発生しました: {ex.Message}", "スキャンエラー", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                BtnPreScan.IsEnabled = true;
+                BtnScanCurrent.IsEnabled = true;
+                BtnScanDialog.IsEnabled = true;
+                ProgressBarMain.Visibility = Visibility.Collapsed;
+            }
+        }
+
         private async Task RunScanAsync(int dpi, bool isPreScan)
         {
             BtnPreScan.IsEnabled = false;
             BtnScanCurrent.IsEnabled = false;
+            BtnScanDialog.IsEnabled = false;
             ProgressBarMain.Visibility = Visibility.Visible;
             ProgressBarMain.IsIndeterminate = true;
 
@@ -172,6 +206,7 @@ namespace IrisPxS
             {
                 BtnPreScan.IsEnabled = true;
                 BtnScanCurrent.IsEnabled = true;
+                BtnScanDialog.IsEnabled = true;
                 ProgressBarMain.Visibility = Visibility.Collapsed;
             }
         }
