@@ -259,6 +259,14 @@
                                     <Button x:Name="BtnAddFrame" Content="+ コマ枠追加" Grid.Column="0" Margin="0,0,2,0" Click="BtnAddFrame_Click" />
                                     <Button x:Name="BtnDeleteFrame" Content="選択枠削除" Grid.Column="1" Margin="2,0,0,0" Click="BtnDeleteFrame_Click" />
                                 </Grid>
+                                <Grid Margin="0,4,0,2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Button x:Name="BtnNudgeLeftPanelUp" Content="▲ 上へ微調整" Grid.Column="0" Margin="0,0,2,0" Height="24" Click="BtnNudgeUp_Click" ToolTip="選択コマ（未選択時は全コマ）を上に微調整移動 (矢印キー↑でも可)" />
+                                    <Button x:Name="BtnNudgeLeftPanelDown" Content="▼ 下へ微調整" Grid.Column="1" Margin="2,0,0,0" Height="24" Click="BtnNudgeDown_Click" ToolTip="選択コマ（未選択時は全コマ）を下に微調整移動 (矢印キー↓でも可)" />
+                                </Grid>
                             </StackPanel>
                         </GroupBox>
 
@@ -303,6 +311,9 @@
 
                         <!-- 右上: アイコンのみの切替ボタン (全体 / 個別 / 全コマ設定表 / ICE差分) -->
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <Button x:Name="BtnToolbarNudgeUp" Content="▲" Width="26" Height="26" Margin="1,0" FontWeight="Bold" Click="BtnNudgeUp_Click" ToolTip="コマ枠を上に微調整移動 (矢印キー↑でも可)" />
+                            <Button x:Name="BtnToolbarNudgeDown" Content="▼" Width="26" Height="26" Margin="1,0" FontWeight="Bold" Click="BtnNudgeDown_Click" ToolTip="コマ枠を下に微調整移動 (矢印キー↓でも可)" />
+                            <Separator Margin="4,2" Width="1" Background="#B0B0B0" />
                             <RadioButton x:Name="RbViewFull" Style="{StaticResource IconViewButtonStyle}" Content="▤" IsChecked="True" ToolTip="スキャン全体ビュー (コマ割り・原稿台全体)" Click="ViewMode_Changed" />
                             <RadioButton x:Name="RbViewSingle" Style="{StaticResource IconViewButtonStyle}" Content="🖼" ToolTip="コマ個別ビュー (拡大表示・詳細確認)" Click="ViewMode_Changed" />
                             <RadioButton x:Name="RbViewTable" Style="{StaticResource IconViewButtonStyle}" Content="⊞" ToolTip="全コマ設定表 (メタデータ一括入力表)" Click="ViewMode_Changed" />

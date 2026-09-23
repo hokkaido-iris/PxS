@@ -219,6 +219,7 @@ namespace IrisPxS.Controls
         protected override void OnMouseDown(MouseButtonEventArgs e)
         {
             base.OnMouseDown(e);
+            Focus();
             CaptureMouse();
             var pos = e.GetPosition(this);
 
@@ -475,6 +476,101 @@ namespace IrisPxS.Controls
 
                 ColorPicked?.Invoke(this, (r, g, b));
             }
+        }
+
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            base.OnKeyDown(e);
+
+            int step = Keyboard.IsKeyDown(Key.LeftShift) || Keyboard.IsKeyDown(Key.RightShift) ? 10 : 2;
+
+            int dx = 0;
+            int dy = 0;
+
+            switch (e.Key)
+            {
+                case Key.Up:
+                    dy = -step;
+                    break;
+                case Key.Down:
+                    dy = step;
+                    break;
+                case Key.Left:
+                    dx = -step;
+                    break;
+                case Key.Right:
+                    dx = step;
+                    break;
+                default:
+                    return;
+            }
+
+            e.Handled = true;
+
+            if (Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl))
+            {
+                NudgeAllFrames(dx, dy);
+            }
+            else
+            {
+                NudgeSelectedFrame(dx, dy);
+            }
+        }
+
+        /// <summary>
+        /// 選択中のコマ枠を平行移動
+        /// </summary>
+        public void NudgeSelectedFrame(int dx, int dy)
+        {
+            if (SelectedFrame == null)
+            {
+                // 選択コマがなければ先頭コマを対象にするか全コマ移動
+                if (Frames != null && Frames.Count > 0)
+                {
+                    NudgeAllFrames(dx, dy);
+                }
+                return;
+            }
+
+            var r = SelectedFrame.CropRect;
+            int newX = Math.Max(0, r.X + dx);
+            int newY = Math.Max(0, r.Y + dy);
+
+            if (ImageSource != null)
+            {
+                newX = Math.Min(newX, ImageSource.PixelWidth - r.Width);
+                newY = Math.Min(newY, ImageSource.PixelHeight - r.Height);
+            }
+
+            SelectedFrame.CropRect = new OpenCvSharp.Rect(newX, newY, r.Width, r.Height);
+            InvalidateVisual();
+            FrameModified?.Invoke(this, EventArgs.Empty);
+        }
+
+        /// <summary>
+        /// 全コマ枠を一括で平行移動
+        /// </summary>
+        public void NudgeAllFrames(int dx, int dy)
+        {
+            if (Frames == null || Frames.Count == 0) return;
+
+            foreach (var frame in Frames)
+            {
+                var r = frame.CropRect;
+                int newX = Math.Max(0, r.X + dx);
+                int newY = Math.Max(0, r.Y + dy);
+
+                if (ImageSource != null)
+                {
+                    newX = Math.Min(newX, ImageSource.PixelWidth - r.Width);
+                    newY = Math.Min(newY, ImageSource.PixelHeight - r.Height);
+                }
+
+                frame.CropRect = new OpenCvSharp.Rect(newX, newY, r.Width, r.Height);
+            }
+
+            InvalidateVisual();
+            FrameModified?.Invoke(this, EventArgs.Empty);
         }
     }
 }

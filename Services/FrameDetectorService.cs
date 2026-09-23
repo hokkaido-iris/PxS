@@ -324,7 +324,7 @@ namespace IrisPxS.Services
         }
 
         /// <summary>
-        /// 正立された画像上でフィルムストリップ位置を特定し、フォーマット通りのコマ枠を確実に配置
+        /// 正立された画像上でフィルムストリップ位置を特定し、写真内容認識型でコマ枠を精密配置
         /// </summary>
         private List<OpenCvSharp.Rect> DetectFramesOnStraightened(Mat scanMat, FilmFormat format, int dpi)
         {
@@ -334,12 +334,10 @@ namespace IrisPxS.Services
             bool isVertical = scanMat.Height >= scanMat.Width;
 
             // DPI 不整合（高DPI設定のままプレビュー画像に適用した場合など）の自動検出と是正
-            // 物理サイズから算出した枠がスキャン画像全体よりも大きい場合は、画像実寸から実効DPIを再計算
             GetFormatDimensions(format, isVertical, dpi, out int targetW, out int targetH, out int pitchPx);
 
             if ((isVertical && targetH >= scanMat.Height) || (!isVertical && targetW >= scanMat.Width))
             {
-                // 画像の実寸法からGT-X820透過エリア仕様（長辺約240mm）に基づき適正DPIを再算出
                 int maxDim = Math.Max(scanMat.Width, scanMat.Height);
                 dpi = (int)Math.Round((double)maxDim / (240.0 / 25.4));
                 if (dpi < 100) dpi = 150;
@@ -348,7 +346,6 @@ namespace IrisPxS.Services
 
             // フィルム領域の特定
             var filmBounds = DetectFilmStripBounds(scanMat);
-
             int desiredCount = format.DefaultFramesPerStrip > 0 ? format.DefaultFramesPerStrip : 6;
 
             if (isVertical)
@@ -356,7 +353,7 @@ namespace IrisPxS.Services
                 int frameW = Math.Min(targetW, scanMat.Width - 4);
                 int frameH = targetH;
 
-                // X方向（幅方向）の中央位置決定: 検出されたフィルム帯があればその中央、なければ画像全体の中央
+                // X方向（幅方向）の中央位置決定
                 int startX;
                 if (filmBounds.Width >= frameW && filmBounds.X >= 0)
                 {
@@ -368,40 +365,49 @@ namespace IrisPxS.Services
                 }
                 startX = Math.Max(0, Math.Min(startX, scanMat.Width - frameW));
 
-                // Y方向（コマ送り方向）の開始位置とコマ数
-                int marginPx = (int)Math.Round(3.0 * dpi / 25.4);
-                int startY = filmBounds.Y >= 0 ? filmBounds.Y + marginPx : marginPx;
+                // 写真領域（中央トラック: パーフォレーションを除く中央70%）から長手方向プロファイルを計算
+                int trackX = startX + (int)(frameW * 0.15);
+                int trackW = Math.Max(10, (int)(frameW * 0.70));
+                var trackZone = new OpenCvSharp.Rect(trackX, 0, trackW, scanMat.Height);
+                float[] profile = ComputeActivityProfile(scanMat, true, trackZone);
 
-                // スキャン画像内に収まる最大コマ数
+                // スキャン画像内に収まる最大コマ数の判定
                 int countToGenerate = desiredCount;
-                if (startY + countToGenerate * pitchPx > scanMat.Height)
+                int minLeadPx = (int)Math.Round(2.0 * dpi / 25.4); // 最小先端マージン 2mm
+                int maxLeadPx = (int)Math.Round(35.0 * dpi / 25.4); // 最大先端余白（リーダー）35mm
+
+                // フィルム帯上端からの探索範囲
+                int searchStart = filmBounds.Y >= 0 ? Math.Max(minLeadPx, filmBounds.Y + minLeadPx) : minLeadPx;
+                int searchEnd = Math.Min(scanMat.Height - frameH, searchStart + maxLeadPx);
+
+                if (searchStart + (countToGenerate - 1) * pitchPx + frameH > scanMat.Height)
                 {
-                    // 上端から収まらない場合、中央揃えで収まるか試行
-                    int totalSpan = (countToGenerate - 1) * pitchPx + frameH;
-                    if (totalSpan <= scanMat.Height)
-                    {
-                        startY = (scanMat.Height - totalSpan) / 2;
-                    }
-                    else
-                    {
-                        // それでも収まらない場合は、入るだけのコマ数に調整
-                        countToGenerate = Math.Max(1, (scanMat.Height - marginPx * 2) / pitchPx);
-                        startY = marginPx;
-                    }
+                    // 収まらない場合はコマ数を収まる数に自動調整
+                    countToGenerate = Math.Max(1, (scanMat.Height - minLeadPx * 2) / pitchPx);
+                    searchEnd = Math.Min(scanMat.Height - frameH, minLeadPx + (int)Math.Round(10.0 * dpi / 25.4));
                 }
+
+                // コンテンツ認識による最適開始位置 (y0) の特定
+                int startY = FindOptimalFrameOffset(profile, frameH, pitchPx, countToGenerate, searchStart, searchEnd);
+
+                // 局所スナップ半径 (±2.5mm)
+                int snapRadius = Math.Max(2, (int)Math.Round(2.5 * dpi / 25.4));
 
                 for (int i = 0; i < countToGenerate; i++)
                 {
-                    int y = startY + i * pitchPx;
-                    if (y + frameH > scanMat.Height)
+                    int nominalY = startY + i * pitchPx;
+                    if (nominalY + frameH > scanMat.Height)
                     {
-                        y = Math.Max(0, scanMat.Height - frameH);
+                        nominalY = Math.Max(0, scanMat.Height - frameH);
                     }
 
-                    frames.Add(new OpenCvSharp.Rect(startX, y, frameW, frameH));
+                    // コマ開始境界の局所スナップ（谷間吸着）
+                    int snappedY = SnapToNearestFrameBoundary(profile, nominalY, snapRadius);
+                    if (snappedY + frameH > scanMat.Height) snappedY = Math.Max(0, scanMat.Height - frameH);
+
+                    frames.Add(new OpenCvSharp.Rect(startX, snappedY, frameW, frameH));
                 }
 
-                // フェイルセーフ: 万一0コマなら中央に強制配置
                 if (frames.Count == 0)
                 {
                     frames.Add(new OpenCvSharp.Rect(
@@ -413,6 +419,7 @@ namespace IrisPxS.Services
             }
             else
             {
+                // 横ストリップ
                 int frameW = targetW;
                 int frameH = Math.Min(targetH, scanMat.Height - 4);
 
@@ -427,33 +434,40 @@ namespace IrisPxS.Services
                 }
                 startY = Math.Max(0, Math.Min(startY, scanMat.Height - frameH));
 
-                int marginPx = (int)Math.Round(3.0 * dpi / 25.4);
-                int startX = filmBounds.X >= 0 ? filmBounds.X + marginPx : marginPx;
+                // 中央トラックからX方向プロファイル計算
+                int trackY = startY + (int)(frameH * 0.15);
+                int trackH = Math.Max(10, (int)(frameH * 0.70));
+                var trackZone = new OpenCvSharp.Rect(0, trackY, scanMat.Width, trackH);
+                float[] profile = ComputeActivityProfile(scanMat, false, trackZone);
 
                 int countToGenerate = desiredCount;
-                if (startX + countToGenerate * pitchPx > scanMat.Width)
+                int minLeadPx = (int)Math.Round(2.0 * dpi / 25.4);
+                int maxLeadPx = (int)Math.Round(35.0 * dpi / 25.4);
+
+                int searchStart = filmBounds.X >= 0 ? Math.Max(minLeadPx, filmBounds.X + minLeadPx) : minLeadPx;
+                int searchEnd = Math.Min(scanMat.Width - frameW, searchStart + maxLeadPx);
+
+                if (searchStart + (countToGenerate - 1) * pitchPx + frameW > scanMat.Width)
                 {
-                    int totalSpan = (countToGenerate - 1) * pitchPx + frameW;
-                    if (totalSpan <= scanMat.Width)
-                    {
-                        startX = (scanMat.Width - totalSpan) / 2;
-                    }
-                    else
-                    {
-                        countToGenerate = Math.Max(1, (scanMat.Width - marginPx * 2) / pitchPx);
-                        startX = marginPx;
-                    }
+                    countToGenerate = Math.Max(1, (scanMat.Width - minLeadPx * 2) / pitchPx);
+                    searchEnd = Math.Min(scanMat.Width - frameW, minLeadPx + (int)Math.Round(10.0 * dpi / 25.4));
                 }
+
+                int startX = FindOptimalFrameOffset(profile, frameW, pitchPx, countToGenerate, searchStart, searchEnd);
+                int snapRadius = Math.Max(2, (int)Math.Round(2.5 * dpi / 25.4));
 
                 for (int i = 0; i < countToGenerate; i++)
                 {
-                    int x = startX + i * pitchPx;
-                    if (x + frameW > scanMat.Width)
+                    int nominalX = startX + i * pitchPx;
+                    if (nominalX + frameW > scanMat.Width)
                     {
-                        x = Math.Max(0, scanMat.Width - frameW);
+                        nominalX = Math.Max(0, scanMat.Width - frameW);
                     }
 
-                    frames.Add(new OpenCvSharp.Rect(x, startY, frameW, frameH));
+                    int snappedX = SnapToNearestFrameBoundary(profile, nominalX, snapRadius);
+                    if (snappedX + frameW > scanMat.Width) snappedX = Math.Max(0, scanMat.Width - frameW);
+
+                    frames.Add(new OpenCvSharp.Rect(snappedX, startY, frameW, frameH));
                 }
 
                 if (frames.Count == 0)
@@ -467,6 +481,210 @@ namespace IrisPxS.Services
             }
 
             return frames;
+        }
+
+        /// <summary>
+        /// フィルム中央の写真領域に沿って長手方向のアクティビティ（水平エッジ密度＋分散）プロファイルを抽出
+        /// </summary>
+        private float[] ComputeActivityProfile(Mat scanMat, bool isVertical, OpenCvSharp.Rect trackZone)
+        {
+            try
+            {
+                int x = Math.Max(0, Math.Min(trackZone.X, scanMat.Width - 1));
+                int y = Math.Max(0, Math.Min(trackZone.Y, scanMat.Height - 1));
+                int w = Math.Max(1, Math.Min(trackZone.Width, scanMat.Width - x));
+                int h = Math.Max(1, Math.Min(trackZone.Height, scanMat.Height - y));
+
+                using var roi = new Mat(scanMat, new OpenCvSharp.Rect(x, y, w, h));
+                using var gray = new Mat();
+                Cv2.CvtColor(roi, gray, ColorConversionCodes.BGR2GRAY);
+
+                int length = isVertical ? h : w;
+                float[] profile = new float[length];
+
+                if (isVertical)
+                {
+                    using var sobelY = new Mat();
+                    Cv2.Sobel(gray, sobelY, MatType.CV_32F, 0, 1, 3);
+                    using var absSobel = new Mat();
+                    Cv2.ConvertScaleAbs(sobelY, absSobel);
+
+                    using var edgeRowMean = new Mat();
+                    Cv2.Reduce(absSobel, edgeRowMean, ReduceDimension.Column, ReduceTypes.Avg, MatType.CV_32F);
+
+                    float[] edgeVals = new float[length];
+                    System.Runtime.InteropServices.Marshal.Copy(edgeRowMean.Data, edgeVals, 0, length);
+                    Array.Copy(edgeVals, profile, length);
+                }
+                else
+                {
+                    using var sobelX = new Mat();
+                    Cv2.Sobel(gray, sobelX, MatType.CV_32F, 1, 0, 3);
+                    using var absSobel = new Mat();
+                    Cv2.ConvertScaleAbs(sobelX, absSobel);
+
+                    using var edgeColMean = new Mat();
+                    Cv2.Reduce(absSobel, edgeColMean, ReduceDimension.Row, ReduceTypes.Avg, MatType.CV_32F);
+
+                    float[] edgeVals = new float[length];
+                    System.Runtime.InteropServices.Marshal.Copy(edgeColMean.Data, edgeVals, 0, length);
+                    Array.Copy(edgeVals, profile, length);
+                }
+
+                // 移動平均による平滑化（パーフォレーション残りや微小ノイズを抑制）
+                float[] smoothed = new float[length];
+                int radius = Math.Max(2, (int)(length * 0.003));
+                for (int i = 0; i < length; i++)
+                {
+                    float sum = 0;
+                    int count = 0;
+                    for (int r = -radius; r <= radius; r++)
+                    {
+                        int idx = i + r;
+                        if (idx >= 0 && idx < length)
+                        {
+                            sum += profile[idx];
+                            count++;
+                        }
+                    }
+                    smoothed[i] = count > 0 ? sum / count : 0;
+                }
+
+                return smoothed;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"ComputeActivityProfile error: {ex.Message}");
+                int len = isVertical ? scanMat.Height : scanMat.Width;
+                return new float[Math.Max(1, len)];
+            }
+        }
+
+        /// <summary>
+        /// 周期パルステンプレートとの相互相関により、写真コマ領域が最も一致する開始オフセットを特定
+        /// </summary>
+        private int FindOptimalFrameOffset(float[] profile, int frameLen, int pitchPx, int count, int minOffset, int maxOffset)
+        {
+            if (profile.Length == 0 || frameLen <= 0 || pitchPx <= 0 || count <= 0) return minOffset;
+
+            int bestOffset = minOffset;
+            double maxScore = double.NegativeInfinity;
+
+            int step = Math.Max(2, pitchPx / 30);
+            int coarseBest = minOffset;
+
+            for (int offset = minOffset; offset <= maxOffset; offset += step)
+            {
+                if (offset + (count - 1) * pitchPx + frameLen > profile.Length) break;
+
+                double score = 0;
+                for (int k = 0; k < count; k++)
+                {
+                    int frameStart = offset + k * pitchPx;
+                    int frameEnd = frameStart + frameLen;
+                    int gapEnd = Math.Min(profile.Length, frameStart + pitchPx);
+
+                    double frameEnergy = 0;
+                    int fCount = 0;
+                    for (int t = frameStart; t < frameEnd && t < profile.Length; t++)
+                    {
+                        frameEnergy += profile[t];
+                        fCount++;
+                    }
+                    double avgFrame = fCount > 0 ? frameEnergy / fCount : 0;
+
+                    double gapEnergy = 0;
+                    int gCount = 0;
+                    for (int g = frameEnd; g < gapEnd && g < profile.Length; g++)
+                    {
+                        gapEnergy += profile[g];
+                        gCount++;
+                    }
+                    double avgGap = gCount > 0 ? gapEnergy / gCount : 0;
+
+                    // コマ内のエッジエネルギーが高く、スリット（谷）のエッジが低いほど高スコア
+                    score += (avgFrame - avgGap * 1.6);
+                }
+
+                if (score > maxScore)
+                {
+                    maxScore = score;
+                    coarseBest = offset;
+                }
+            }
+
+            // 周辺を1px刻みで精密探索
+            int fineMin = Math.Max(minOffset, coarseBest - step * 2);
+            int fineMax = Math.Min(maxOffset, coarseBest + step * 2);
+
+            bestOffset = coarseBest;
+            double fineMaxScore = maxScore;
+
+            for (int offset = fineMin; offset <= fineMax; offset++)
+            {
+                if (offset + (count - 1) * pitchPx + frameLen > profile.Length) break;
+
+                double score = 0;
+                for (int k = 0; k < count; k++)
+                {
+                    int frameStart = offset + k * pitchPx;
+                    int frameEnd = frameStart + frameLen;
+                    int gapEnd = Math.Min(profile.Length, frameStart + pitchPx);
+
+                    double frameEnergy = 0;
+                    int fCount = 0;
+                    for (int t = frameStart; t < frameEnd && t < profile.Length; t++)
+                    {
+                        frameEnergy += profile[t];
+                        fCount++;
+                    }
+                    double avgFrame = fCount > 0 ? frameEnergy / fCount : 0;
+
+                    double gapEnergy = 0;
+                    int gCount = 0;
+                    for (int g = frameEnd; g < gapEnd && g < profile.Length; g++)
+                    {
+                        gapEnergy += profile[g];
+                        gCount++;
+                    }
+                    double avgGap = gCount > 0 ? gapEnergy / gCount : 0;
+
+                    score += (avgFrame - avgGap * 1.6);
+                }
+
+                if (score > fineMaxScore)
+                {
+                    fineMaxScore = score;
+                    bestOffset = offset;
+                }
+            }
+
+            return bestOffset;
+        }
+
+        /// <summary>
+        /// 公称境界の周辺探索範囲から、コマ間スリット（未露光の平坦な谷間）へ磁石吸着
+        /// </summary>
+        private int SnapToNearestFrameBoundary(float[] profile, int nominalPos, int searchRadius)
+        {
+            if (nominalPos < 0 || nominalPos >= profile.Length || searchRadius <= 0) return nominalPos;
+
+            int minIdx = nominalPos;
+            float minVal = float.MaxValue;
+
+            int start = Math.Max(0, nominalPos - searchRadius);
+            int end = Math.Min(profile.Length - 1, nominalPos + searchRadius);
+
+            for (int i = start; i <= end; i++)
+            {
+                if (profile[i] < minVal)
+                {
+                    minVal = profile[i];
+                    minIdx = i;
+                }
+            }
+
+            return minIdx;
         }
 
         /// <summary>

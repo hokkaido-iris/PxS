@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Microsoft.Win32;
@@ -48,8 +49,15 @@ namespace IrisPxS
                 if (_selectedFrame != null)
                 {
                     UpdateFrameThumbnail(_selectedFrame);
-                    if (RbViewSingle.IsChecked == true) UpdateSingleFramePreview();
                 }
+                else
+                {
+                    foreach (var f in _currentRoll.AllFrames)
+                    {
+                        UpdateFrameThumbnail(f);
+                    }
+                }
+                if (RbViewSingle.IsChecked == true) UpdateSingleFramePreview();
             };
             ScanCanvas.ColorPicked += (s, rgb) =>
             {
@@ -873,6 +881,44 @@ namespace IrisPxS
                     _selectedFrame = null;
                 }
                 UpdateFrameSummary();
+            }
+        }
+
+        private void BtnNudgeUp_Click(object sender, RoutedEventArgs e)
+        {
+            NudgeFrames(isForward: false);
+        }
+
+        private void BtnNudgeDown_Click(object sender, RoutedEventArgs e)
+        {
+            NudgeFrames(isForward: true);
+        }
+
+        private void NudgeFrames(bool isForward)
+        {
+            if (_currentRoll.AllFrames.Count == 0) return;
+
+            int step = Keyboard.IsKeyDown(Key.LeftShift) || Keyboard.IsKeyDown(Key.RightShift) ? 10 : 2;
+            int delta = isForward ? step : -step;
+
+            bool isVertical = _currentScanMat == null || _currentScanMat.Height >= _currentScanMat.Width;
+            int dx = isVertical ? 0 : delta;
+            int dy = isVertical ? delta : 0;
+
+            if (ScanCanvas.SelectedFrame != null)
+            {
+                ScanCanvas.NudgeSelectedFrame(dx, dy);
+                UpdateFrameThumbnail(ScanCanvas.SelectedFrame);
+                if (RbViewSingle.IsChecked == true) UpdateSingleFramePreview();
+            }
+            else
+            {
+                ScanCanvas.NudgeAllFrames(dx, dy);
+                foreach (var f in _currentRoll.AllFrames)
+                {
+                    UpdateFrameThumbnail(f);
+                }
+                if (RbViewSingle.IsChecked == true) UpdateSingleFramePreview();
             }
         }
 
