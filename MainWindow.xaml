@@ -267,6 +267,17 @@
                                     <Button x:Name="BtnNudgeLeftPanelUp" Content="▲ 上へ微調整" Grid.Column="0" Margin="0,0,2,0" Height="24" Click="BtnNudgeUp_Click" ToolTip="選択コマ（未選択時は全コマ）を上に微調整移動 (矢印キー↑でも可)" />
                                     <Button x:Name="BtnNudgeLeftPanelDown" Content="▼ 下へ微調整" Grid.Column="1" Margin="2,0,0,0" Height="24" Click="BtnNudgeDown_Click" ToolTip="選択コマ（未選択時は全コマ）を下に微調整移動 (矢印キー↓でも可)" />
                                 </Grid>
+
+                                <!-- 内側トリム (余白カット %) -->
+                                <Grid Margin="0,6,0,2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Label Content="内側トリム (余白カット):" Grid.Column="0" VerticalAlignment="Center" Padding="0" />
+                                    <TextBlock x:Name="TxtCropInsetValue" Text="3.0 %" Grid.Column="1" FontWeight="Bold" VerticalAlignment="Center" />
+                                </Grid>
+                                <Slider x:Name="SliderCropInset" Minimum="0" Maximum="10" SmallChange="0.5" LargeChange="1.0" Value="3.0" Margin="0,2,0,4" ValueChanged="SliderCropInset_ValueChanged" ToolTip="露光枠の黒フチやコマ間隙間が画像内に残らないよう、コマの内側を何%カットして全面写真にするか調整します" />
                             </StackPanel>
                         </GroupBox>
 

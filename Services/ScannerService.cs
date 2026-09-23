@@ -413,8 +413,10 @@ namespace IrisPxS.Services
             {
                 Path.Combine(baseDir, "TwainWorker", "TwainWorker.exe"),
                 Path.Combine(baseDir, "TwainWorker.exe"),
+                Path.Combine(baseDir, @"TwainWorker\bin\x86\Release\net8.0-windows\TwainWorker.exe"),
+                Path.GetFullPath(Path.Combine(baseDir, @"..\..\..\TwainWorker\bin\x86\Release\net8.0-windows\TwainWorker.exe")),
                 Path.GetFullPath(Path.Combine(baseDir, @"..\..\..\TwainWorker\bin\Release\net8.0-windows\TwainWorker.exe")),
-                Path.GetFullPath(Path.Combine(baseDir, @"..\..\..\TwainWorker\bin\Debug\net8.0-windows\TwainWorker.exe")),
+                @"C:\Users\tarui\.gemini\antigravity-ide\scratch\iris-pxs\TwainWorker\bin\x86\Release\net8.0-windows\TwainWorker.exe",
                 @"C:\Users\tarui\.gemini\antigravity-ide\scratch\iris-pxs\TwainWorker\bin\Release\net8.0-windows\TwainWorker.exe"
             };
 

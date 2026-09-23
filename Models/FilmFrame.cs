@@ -33,6 +33,32 @@ namespace IrisPxS.Models
             set { _rotationDegrees = value; OnPropertyChanged(); }
         }
 
+        private double _cropInsetPercent = 3.0;
+        public double CropInsetPercent
+        {
+            get => _cropInsetPercent;
+            set { _cropInsetPercent = value; OnPropertyChanged(); }
+        }
+
+        /// <summary>
+        /// 内側トリム（％）を適用した実際のデジタル画像切り出し矩形を取得
+        /// </summary>
+        public OpenCvSharp.Rect GetInsetCropRect()
+        {
+            if (_cropInsetPercent <= 0.001) return _cropRect;
+
+            double ratio = Math.Clamp(_cropInsetPercent / 100.0, 0.0, 0.25);
+            int insetX = (int)Math.Round(_cropRect.Width * ratio);
+            int insetY = (int)Math.Round(_cropRect.Height * ratio);
+
+            int newX = _cropRect.X + insetX;
+            int newY = _cropRect.Y + insetY;
+            int newW = Math.Max(10, _cropRect.Width - insetX * 2);
+            int newH = Math.Max(10, _cropRect.Height - insetY * 2);
+
+            return new OpenCvSharp.Rect(newX, newY, newW, newH);
+        }
+
         private bool _isSelected = false;
         public bool IsSelected
         {

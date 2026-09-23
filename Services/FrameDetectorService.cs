@@ -344,8 +344,6 @@ namespace IrisPxS.Services
                 GetFormatDimensions(format, isVertical, dpi, out targetW, out targetH, out pitchPx);
             }
 
-            // フィルム領域の特定
-            var filmBounds = DetectFilmStripBounds(scanMat);
             int desiredCount = format.DefaultFramesPerStrip > 0 ? format.DefaultFramesPerStrip : 6;
 
             if (isVertical)
@@ -353,11 +351,14 @@ namespace IrisPxS.Services
                 int frameW = Math.Min(targetW, scanMat.Width - 4);
                 int frameH = targetH;
 
-                // X方向（幅方向）の中央位置決定
+                // 1. フィルムストリップの正確な左右境界 (X_L, X_R) の検出
+                var (filmLeft, filmRight) = DetectFilmHorizontalEdges(scanMat);
+
                 int startX;
-                if (filmBounds.Width >= frameW && filmBounds.X >= 0)
+                if (filmRight > filmLeft && (filmRight - filmLeft) >= frameW)
                 {
-                    startX = filmBounds.X + (filmBounds.Width - frameW) / 2;
+                    // フィルム帯中央に24mm写真トラックを配置
+                    startX = filmLeft + ((filmRight - filmLeft) - frameW) / 2;
                 }
                 else
                 {
@@ -365,47 +366,25 @@ namespace IrisPxS.Services
                 }
                 startX = Math.Max(0, Math.Min(startX, scanMat.Width - frameW));
 
-                // 写真領域（中央トラック: パーフォレーションを除く中央70%）から長手方向プロファイルを計算
-                int trackX = startX + (int)(frameW * 0.15);
-                int trackW = Math.Max(10, (int)(frameW * 0.70));
+                // 2. 中央写真トラックからプロファイルと露光リーダー部を抽出
+                int trackX = startX + (int)(frameW * 0.10);
+                int trackW = Math.Max(10, (int)(frameW * 0.80));
                 var trackZone = new OpenCvSharp.Rect(trackX, 0, trackW, scanMat.Height);
+
                 float[] profile = ComputeActivityProfile(scanMat, true, trackZone);
+                int leadEnd = DetectDarkLeaderEnd(scanMat, trackZone);
 
-                // スキャン画像内に収まる最大コマ数の判定
-                int countToGenerate = desiredCount;
-                int minLeadPx = (int)Math.Round(2.0 * dpi / 25.4); // 最小先端マージン 2mm
-                int maxLeadPx = (int)Math.Round(35.0 * dpi / 25.4); // 最大先端余白（リーダー）35mm
-
-                // フィルム帯上端からの探索範囲
-                int searchStart = filmBounds.Y >= 0 ? Math.Max(minLeadPx, filmBounds.Y + minLeadPx) : minLeadPx;
-                int searchEnd = Math.Min(scanMat.Height - frameH, searchStart + maxLeadPx);
-
-                if (searchStart + (countToGenerate - 1) * pitchPx + frameH > scanMat.Height)
-                {
-                    // 収まらない場合はコマ数を収まる数に自動調整
-                    countToGenerate = Math.Max(1, (scanMat.Height - minLeadPx * 2) / pitchPx);
-                    searchEnd = Math.Min(scanMat.Height - frameH, minLeadPx + (int)Math.Round(10.0 * dpi / 25.4));
-                }
-
-                // コンテンツ認識による最適開始位置 (y0) の特定
-                int startY = FindOptimalFrameOffset(profile, frameH, pitchPx, countToGenerate, searchStart, searchEnd);
-
-                // 局所スナップ半径 (±2.5mm)
+                // 3. 写真トラック内で最もコントラスト・ディテールの高い「アンカーコマ」を検出
                 int snapRadius = Math.Max(2, (int)Math.Round(2.5 * dpi / 25.4));
+                int anchorY = FindAnchorFrameStartY(profile, frameH, pitchPx, leadEnd, scanMat.Height);
 
-                for (int i = 0; i < countToGenerate; i++)
+                // 4. アンカーコマを基準に、フィルム機械規格ピッチ（38.0mm周期）で前後に同期展開
+                var yPositions = GenerateSynchronizedYPositions(anchorY, frameH, pitchPx, leadEnd, scanMat.Height, desiredCount, profile, snapRadius);
+
+                foreach (int y in yPositions)
                 {
-                    int nominalY = startY + i * pitchPx;
-                    if (nominalY + frameH > scanMat.Height)
-                    {
-                        nominalY = Math.Max(0, scanMat.Height - frameH);
-                    }
-
-                    // コマ開始境界の局所スナップ（谷間吸着）
-                    int snappedY = SnapToNearestFrameBoundary(profile, nominalY, snapRadius);
-                    if (snappedY + frameH > scanMat.Height) snappedY = Math.Max(0, scanMat.Height - frameH);
-
-                    frames.Add(new OpenCvSharp.Rect(startX, snappedY, frameW, frameH));
+                    int clampedY = Math.Max(0, Math.Min(y, scanMat.Height - frameH));
+                    frames.Add(new OpenCvSharp.Rect(startX, clampedY, frameW, frameH));
                 }
 
                 if (frames.Count == 0)
@@ -423,10 +402,12 @@ namespace IrisPxS.Services
                 int frameW = targetW;
                 int frameH = Math.Min(targetH, scanMat.Height - 4);
 
+                var (filmTop, filmBottom) = DetectFilmVerticalEdges(scanMat);
+
                 int startY;
-                if (filmBounds.Height >= frameH && filmBounds.Y >= 0)
+                if (filmBottom > filmTop && (filmBottom - filmTop) >= frameH)
                 {
-                    startY = filmBounds.Y + (filmBounds.Height - frameH) / 2;
+                    startY = filmTop + ((filmBottom - filmTop) - frameH) / 2;
                 }
                 else
                 {
@@ -434,40 +415,22 @@ namespace IrisPxS.Services
                 }
                 startY = Math.Max(0, Math.Min(startY, scanMat.Height - frameH));
 
-                // 中央トラックからX方向プロファイル計算
-                int trackY = startY + (int)(frameH * 0.15);
-                int trackH = Math.Max(10, (int)(frameH * 0.70));
+                int trackY = startY + (int)(frameH * 0.10);
+                int trackH = Math.Max(10, (int)(frameH * 0.80));
                 var trackZone = new OpenCvSharp.Rect(0, trackY, scanMat.Width, trackH);
+
                 float[] profile = ComputeActivityProfile(scanMat, false, trackZone);
+                int leadEnd = DetectDarkLeaderEnd(scanMat, trackZone, isVertical: false);
 
-                int countToGenerate = desiredCount;
-                int minLeadPx = (int)Math.Round(2.0 * dpi / 25.4);
-                int maxLeadPx = (int)Math.Round(35.0 * dpi / 25.4);
-
-                int searchStart = filmBounds.X >= 0 ? Math.Max(minLeadPx, filmBounds.X + minLeadPx) : minLeadPx;
-                int searchEnd = Math.Min(scanMat.Width - frameW, searchStart + maxLeadPx);
-
-                if (searchStart + (countToGenerate - 1) * pitchPx + frameW > scanMat.Width)
-                {
-                    countToGenerate = Math.Max(1, (scanMat.Width - minLeadPx * 2) / pitchPx);
-                    searchEnd = Math.Min(scanMat.Width - frameW, minLeadPx + (int)Math.Round(10.0 * dpi / 25.4));
-                }
-
-                int startX = FindOptimalFrameOffset(profile, frameW, pitchPx, countToGenerate, searchStart, searchEnd);
                 int snapRadius = Math.Max(2, (int)Math.Round(2.5 * dpi / 25.4));
+                int anchorX = FindAnchorFrameStartY(profile, frameW, pitchPx, leadEnd, scanMat.Width);
 
-                for (int i = 0; i < countToGenerate; i++)
+                var xPositions = GenerateSynchronizedYPositions(anchorX, frameW, pitchPx, leadEnd, scanMat.Width, desiredCount, profile, snapRadius);
+
+                foreach (int x in xPositions)
                 {
-                    int nominalX = startX + i * pitchPx;
-                    if (nominalX + frameW > scanMat.Width)
-                    {
-                        nominalX = Math.Max(0, scanMat.Width - frameW);
-                    }
-
-                    int snappedX = SnapToNearestFrameBoundary(profile, nominalX, snapRadius);
-                    if (snappedX + frameW > scanMat.Width) snappedX = Math.Max(0, scanMat.Width - frameW);
-
-                    frames.Add(new OpenCvSharp.Rect(snappedX, startY, frameW, frameH));
+                    int clampedX = Math.Max(0, Math.Min(x, scanMat.Width - frameW));
+                    frames.Add(new OpenCvSharp.Rect(clampedX, startY, frameW, frameH));
                 }
 
                 if (frames.Count == 0)
@@ -481,6 +444,280 @@ namespace IrisPxS.Services
             }
 
             return frames;
+        }
+
+        /// <summary>
+        /// 透過スキャン画像からフィルムストリップの正確な左右境界 (X_L, X_R) を検出
+        /// </summary>
+        private (int Left, int Right) DetectFilmHorizontalEdges(Mat scanMat)
+        {
+            try
+            {
+                using var gray = new Mat();
+                Cv2.CvtColor(scanMat, gray, ColorConversionCodes.BGR2GRAY);
+
+                // 中央付近の高さ50%領域で水平プロファイルを計算（上下端のホルダー遮光板などを回避）
+                int midY = (int)(scanMat.Height * 0.25);
+                int midH = (int)(scanMat.Height * 0.50);
+                using var roi = new Mat(gray, new OpenCvSharp.Rect(0, midY, scanMat.Width, midH));
+
+                using var colMean = new Mat();
+                Cv2.Reduce(roi, colMean, ReduceDimension.Row, ReduceTypes.Avg, MatType.CV_32F);
+
+                float[] cols = new float[scanMat.Width];
+                System.Runtime.InteropServices.Marshal.Copy(colMean.Data, cols, 0, scanMat.Width);
+
+                // ガラス面（素抜け）の輝度基準値（通常 240 以上）
+                float maxVal = cols.Max();
+                float glassThresh = Math.Max(210f, maxVal * 0.90f);
+
+                int left = -1;
+                int right = -1;
+
+                // 左端探索: ガラス面からフィルム（暗い部分）への急変点
+                for (int x = 5; x < scanMat.Width / 2; x++)
+                {
+                    if (cols[x] < glassThresh)
+                    {
+                        left = x;
+                        break;
+                    }
+                }
+
+                // 右端探索
+                for (int x = scanMat.Width - 6; x > scanMat.Width / 2; x--)
+                {
+                    if (cols[x] < glassThresh)
+                    {
+                        right = x;
+                        break;
+                    }
+                }
+
+                if (left >= 0 && right > left && (right - left) > 100)
+                {
+                    return (left, right);
+                }
+            }
+            catch { }
+
+            // フォールバック
+            return ((int)(scanMat.Width * 0.15), (int)(scanMat.Width * 0.85));
+        }
+
+        /// <summary>
+        /// 横ストリップ時の正確な上下境界 (Y_Top, Y_Bottom) を検出
+        /// </summary>
+        private (int Top, int Bottom) DetectFilmVerticalEdges(Mat scanMat)
+        {
+            try
+            {
+                using var gray = new Mat();
+                Cv2.CvtColor(scanMat, gray, ColorConversionCodes.BGR2GRAY);
+
+                int midX = (int)(scanMat.Width * 0.25);
+                int midW = (int)(scanMat.Width * 0.50);
+                using var roi = new Mat(gray, new OpenCvSharp.Rect(midX, 0, midW, scanMat.Height));
+
+                using var rowMean = new Mat();
+                Cv2.Reduce(roi, rowMean, ReduceDimension.Column, ReduceTypes.Avg, MatType.CV_32F);
+
+                float[] rows = new float[scanMat.Height];
+                System.Runtime.InteropServices.Marshal.Copy(rowMean.Data, rows, 0, scanMat.Height);
+
+                float maxVal = rows.Max();
+                float glassThresh = Math.Max(210f, maxVal * 0.90f);
+
+                int top = -1;
+                int bottom = -1;
+
+                for (int y = 5; y < scanMat.Height / 2; y++)
+                {
+                    if (rows[y] < glassThresh) { top = y; break; }
+                }
+                for (int y = scanMat.Height - 6; y > scanMat.Height / 2; y--)
+                {
+                    if (rows[y] < glassThresh) { bottom = y; break; }
+                }
+
+                if (top >= 0 && bottom > top && (bottom - top) > 100)
+                {
+                    return (top, bottom);
+                }
+            }
+            catch { }
+
+            return ((int)(scanMat.Height * 0.15), (int)(scanMat.Height * 0.85));
+        }
+
+        /// <summary>
+        /// フィルム先端の引き出し黒色露光部（リーダー）の終了位置を検出
+        /// </summary>
+        private int DetectDarkLeaderEnd(Mat scanMat, OpenCvSharp.Rect trackZone, bool isVertical = true)
+        {
+            try
+            {
+                int x = Math.Max(0, Math.Min(trackZone.X, scanMat.Width - 1));
+                int y = Math.Max(0, Math.Min(trackZone.Y, scanMat.Height - 1));
+                int w = Math.Max(1, Math.Min(trackZone.Width, scanMat.Width - x));
+                int h = Math.Max(1, Math.Min(trackZone.Height, scanMat.Height - y));
+
+                using var roi = new Mat(scanMat, new OpenCvSharp.Rect(x, y, w, h));
+                using var gray = new Mat();
+                Cv2.CvtColor(roi, gray, ColorConversionCodes.BGR2GRAY);
+
+                if (isVertical)
+                {
+                    using var rowMean = new Mat();
+                    Cv2.Reduce(gray, rowMean, ReduceDimension.Column, ReduceTypes.Avg, MatType.CV_32F);
+                    float[] vals = new float[h];
+                    System.Runtime.InteropServices.Marshal.Copy(rowMean.Data, vals, 0, h);
+
+                    // 先端が真っ黒（露光済みリーダー: 輝度 < 100）の場合、ベース色（> 140）への立ち上がりを探索
+                    if (vals.Length > 50 && vals[10] < 100)
+                    {
+                        for (int i = 20; i < Math.Min(vals.Length, vals.Length / 3); i++)
+                        {
+                            if (vals[i] > 130)
+                            {
+                                return i + 10; // リーダー終了位置
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    using var colMean = new Mat();
+                    Cv2.Reduce(gray, colMean, ReduceDimension.Row, ReduceTypes.Avg, MatType.CV_32F);
+                    float[] vals = new float[w];
+                    System.Runtime.InteropServices.Marshal.Copy(colMean.Data, vals, 0, w);
+
+                    if (vals.Length > 50 && vals[10] < 100)
+                    {
+                        for (int i = 20; i < Math.Min(vals.Length, vals.Length / 3); i++)
+                        {
+                            if (vals[i] > 130) return i + 10;
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            return 0;
+        }
+
+        /// <summary>
+        /// 画像内で最もエッジ活動量（被写体コントラスト）が高い「アンカーコマ」の開始位置を検出
+        /// </summary>
+        private int FindAnchorFrameStartY(float[] profile, int frameLen, int pitchPx, int leadEnd, int totalLen)
+        {
+            int bestY = leadEnd;
+            double maxEnergy = -1.0;
+
+            int step = Math.Max(2, pitchPx / 30);
+            int minSearch = Math.Max(0, leadEnd);
+            int maxSearch = Math.Min(totalLen - frameLen, profile.Length - frameLen);
+
+            for (int y = minSearch; y <= maxSearch; y += step)
+            {
+                double energy = 0;
+                int count = 0;
+                for (int t = 0; t < frameLen && (y + t) < profile.Length; t++)
+                {
+                    energy += profile[y + t];
+                    count++;
+                }
+
+                double avg = count > 0 ? energy / count : 0;
+                if (avg > maxEnergy)
+                {
+                    maxEnergy = avg;
+                    bestY = y;
+                }
+            }
+
+            // 周辺精密化
+            int fineMin = Math.Max(minSearch, bestY - step * 2);
+            int fineMax = Math.Min(maxSearch, bestY + step * 2);
+            for (int y = fineMin; y <= fineMax; y++)
+            {
+                double energy = 0;
+                int count = 0;
+                for (int t = 0; t < frameLen && (y + t) < profile.Length; t++)
+                {
+                    energy += profile[y + t];
+                    count++;
+                }
+                double avg = count > 0 ? energy / count : 0;
+                if (avg > maxEnergy)
+                {
+                    maxEnergy = avg;
+                    bestY = y;
+                }
+            }
+
+            return bestY;
+        }
+
+        /// <summary>
+        /// アンカーコマ位置から機械規格ピッチ（38.0mm）で前後に同期展開し、全コマの座標を決定
+        /// </summary>
+        private List<int> GenerateSynchronizedYPositions(
+            int anchorY,
+            int frameH,
+            int pitchPx,
+            int leadEnd,
+            int totalLen,
+            int maxCount,
+            float[] profile,
+            int snapRadius)
+        {
+            var rawPositions = new List<int>();
+
+            // アンカーコマ自身を追加
+            rawPositions.Add(anchorY);
+
+            // 上方向へ展開 (ピッチ分ずつ遡る)
+            int currY = anchorY - pitchPx;
+            while (currY >= leadEnd && currY >= 0)
+            {
+                rawPositions.Add(currY);
+                currY -= pitchPx;
+            }
+
+            // 下方向へ展開
+            currY = anchorY + pitchPx;
+            while (currY + frameH <= totalLen)
+            {
+                rawPositions.Add(currY);
+                currY += pitchPx;
+            }
+
+            // 昇順ソート
+            rawPositions.Sort();
+
+            // 指定コマ数に収める (必要に応じてリーダーに近い方を優先または均等採用)
+            if (rawPositions.Count > maxCount)
+            {
+                // アンカーを含む連続した maxCount 個を選択
+                int anchorIdx = rawPositions.IndexOf(anchorY);
+                int startIdx = Math.Max(0, anchorIdx - maxCount / 2);
+                if (startIdx + maxCount > rawPositions.Count)
+                {
+                    startIdx = Math.Max(0, rawPositions.Count - maxCount);
+                }
+                rawPositions = rawPositions.Skip(startIdx).Take(maxCount).ToList();
+            }
+
+            // 各コマの位置を局所スリット谷間へスナップ
+            var snappedPositions = new List<int>();
+            foreach (int pos in rawPositions)
+            {
+                int snapped = SnapToNearestFrameBoundary(profile, pos, snapRadius);
+                snappedPositions.Add(snapped);
+            }
+
+            return snappedPositions;
         }
 
         /// <summary>

@@ -91,6 +91,13 @@ namespace IrisPxS.Models
             set { _selectedFormatType = value; OnPropertyChanged(); }
         }
 
+        private double _defaultCropInsetPercent = 3.0;
+        public double DefaultCropInsetPercent
+        {
+            get => _defaultCropInsetPercent;
+            set { _defaultCropInsetPercent = value; OnPropertyChanged(); }
+        }
+
         private ObservableCollection<FilmStrip> _strips = new();
         public ObservableCollection<FilmStrip> Strips
         {

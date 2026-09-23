@@ -47,6 +47,21 @@ namespace IrisPxS
                 Console.WriteLine($"  コマ #{i + 1}: X={r.X}, Y={r.Y}, W={r.Width}, H={r.Height}, Aspect={((double)r.Height / r.Width):F2}");
             }
 
+            // 実スキャン画像 (real_scan.bmp) がある場合の高精度検証
+            string realScanPath = @"C:\Users\tarui\.gemini\antigravity-ide\scratch\real_scan.bmp";
+            if (File.Exists(realScanPath))
+            {
+                Console.WriteLine("\n[実機スキャン画像検証 (real_scan.bmp)]...");
+                using var realMat = Cv2.ImRead(realScanPath);
+                var (realStraight, realSkew, realFrames) = detectorService.DetectAndStraighten(realMat, format, 300);
+                Console.WriteLine($"実フィルム検知傾き角: {realSkew:F2}°, 検出コマ数: {realFrames.Count}");
+                for (int i = 0; i < realFrames.Count; i++)
+                {
+                    var r = realFrames[i];
+                    Console.WriteLine($"  実コマ #{i + 1}: X={r.X}, Y={r.Y}, W={r.Width}, H={r.Height}");
+                }
+            }
+
             // フィルムとメディアなし部分のコントラストによる大角度傾き検出テスト (+2.5度, +6.5度, -8.5度)
             double[] testAngles = { 2.5, 6.5, -8.5 };
             foreach (var testAng in testAngles)

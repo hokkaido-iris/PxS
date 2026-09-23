@@ -169,6 +169,22 @@ namespace IrisPxS.Controls
 
             dc.DrawRectangle(fillBrush, pen, screenRect);
 
+            // 内側トリム（余白カット実領域）の破線ガイド描画
+            if (frame.CropInsetPercent > 0.05)
+            {
+                var inR = frame.GetInsetCropRect();
+                double inX = _panOffset.X + inR.X * _scale;
+                double inY = _panOffset.Y + inR.Y * _scale;
+                double inW = inR.Width * _scale;
+                double inH = inR.Height * _scale;
+
+                var insetPen = new Pen(new SolidColorBrush(Color.FromArgb(170, 255, 255, 255)), 1.0)
+                {
+                    DashStyle = DashStyles.Dash
+                };
+                dc.DrawRectangle(null, insetPen, new System.Windows.Rect(inX, inY, inW, inH));
+            }
+
             // 番号バッジ描画
             var badgeBg = new SolidColorBrush(strokeColor);
             var badgeRect = new System.Windows.Rect(screenX + 4, screenY + 4, 32, 22);

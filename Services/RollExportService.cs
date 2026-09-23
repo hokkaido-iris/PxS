@@ -66,14 +66,15 @@ namespace IrisPxS.Services
                     using var rawMat = Cv2.ImRead(frame.RawImagePath, ImreadModes.Color);
                     if (rawMat.Empty()) continue;
 
-                    // コマ領域 (CropRect) の切り出し
+                    // コマ領域 (GetInsetCropRect: 内側トリム適用済み) の切り出し
                     Mat croppedRaw;
-                    if (frame.CropRect.Width > 0 && frame.CropRect.Height > 0)
+                    var cropR = frame.GetInsetCropRect();
+                    if (cropR.Width > 0 && cropR.Height > 0)
                     {
-                        int cx = Math.Max(0, Math.Min(frame.CropRect.X, rawMat.Width - 1));
-                        int cy = Math.Max(0, Math.Min(frame.CropRect.Y, rawMat.Height - 1));
-                        int cw = Math.Min(frame.CropRect.Width, rawMat.Width - cx);
-                        int ch = Math.Min(frame.CropRect.Height, rawMat.Height - cy);
+                        int cx = Math.Max(0, Math.Min(cropR.X, rawMat.Width - 1));
+                        int cy = Math.Max(0, Math.Min(cropR.Y, rawMat.Height - 1));
+                        int cw = Math.Min(cropR.Width, rawMat.Width - cx);
+                        int ch = Math.Min(cropR.Height, rawMat.Height - cy);
                         croppedRaw = new Mat(rawMat, new OpenCvSharp.Rect(cx, cy, cw, ch)).Clone();
                     }
                     else
@@ -91,12 +92,12 @@ namespace IrisPxS.Services
                             using var fullIr = Cv2.ImRead(frame.IrImagePath, ImreadModes.Unchanged);
                             if (!fullIr.Empty())
                             {
-                                if (frame.CropRect.Width > 0 && frame.CropRect.Height > 0)
+                                if (cropR.Width > 0 && cropR.Height > 0)
                                 {
-                                    int cx = Math.Max(0, Math.Min(frame.CropRect.X, fullIr.Width - 1));
-                                    int cy = Math.Max(0, Math.Min(frame.CropRect.Y, fullIr.Height - 1));
-                                    int cw = Math.Min(frame.CropRect.Width, fullIr.Width - cx);
-                                    int ch = Math.Min(frame.CropRect.Height, fullIr.Height - cy);
+                                    int cx = Math.Max(0, Math.Min(cropR.X, fullIr.Width - 1));
+                                    int cy = Math.Max(0, Math.Min(cropR.Y, fullIr.Height - 1));
+                                    int cw = Math.Min(cropR.Width, fullIr.Width - cx);
+                                    int ch = Math.Min(cropR.Height, fullIr.Height - cy);
                                     irMat = new Mat(fullIr, new OpenCvSharp.Rect(cx, cy, cw, ch)).Clone();
                                 }
                                 else
@@ -249,7 +250,7 @@ namespace IrisPxS.Services
                 if (File.Exists(frame.RawImagePath))
                 {
                     using var raw = Cv2.ImRead(frame.RawImagePath, ImreadModes.Color);
-                    var r = frame.CropRect;
+                    var r = frame.GetInsetCropRect();
                     if (r.Width > 0 && r.Height > 0 && r.X >= 0 && r.Y >= 0 && r.X + r.Width <= raw.Width && r.Y + r.Height <= raw.Height)
                     {
                         using var cropped = new Mat(raw, r);

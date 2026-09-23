@@ -509,7 +509,7 @@ namespace IrisPxS
             // ネガポジ反転・カラー補正画像をレンダリング
             try
             {
-                var crop = _selectedFrame.CropRect;
+                var crop = _selectedFrame.GetInsetCropRect();
                 if (crop.Width <= 0 || crop.Height <= 0) return;
 
                 // 領域クリップ
@@ -772,7 +772,8 @@ namespace IrisPxS
                     ShutterSpeed = "",
                     ISO = _currentRoll.DefaultIso,
                     IsColor = _currentRoll.IsColor,
-                    IsNegative = _currentRoll.IsNegative
+                    IsNegative = _currentRoll.IsNegative,
+                    CropInsetPercent = _currentRoll.DefaultCropInsetPercent
                 };
 
                 // ベースカラー初期値
@@ -842,7 +843,8 @@ namespace IrisPxS
                 CameraModel = "",
                 LensModel = "",
                 IsColor = _currentRoll.IsColor,
-                IsNegative = _currentRoll.IsNegative
+                IsNegative = _currentRoll.IsNegative,
+                CropInsetPercent = _currentRoll.DefaultCropInsetPercent
             };
 
             _currentStrip.Frames.Add(newFrame);
@@ -919,6 +921,30 @@ namespace IrisPxS
                     UpdateFrameThumbnail(f);
                 }
                 if (RbViewSingle.IsChecked == true) UpdateSingleFramePreview();
+            }
+        }
+
+        private void SliderCropInset_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (TxtCropInsetValue == null || _currentRoll == null || ScanCanvas == null) return;
+            double val = Math.Round(e.NewValue, 1);
+            TxtCropInsetValue.Text = $"{val:0.0} %";
+
+            _currentRoll.DefaultCropInsetPercent = val;
+
+            if (_currentRoll.AllFrames != null)
+            {
+                foreach (var frame in _currentRoll.AllFrames)
+                {
+                    frame.CropInsetPercent = val;
+                    UpdateFrameThumbnail(frame);
+                }
+            }
+
+            ScanCanvas.InvalidateVisual();
+            if (RbViewSingle?.IsChecked == true)
+            {
+                UpdateSingleFramePreview();
             }
         }
 
@@ -1138,7 +1164,7 @@ namespace IrisPxS
             if (_currentScanMat == null || _currentScanMat.IsDisposed) return;
             try
             {
-                var crop = frame.CropRect;
+                var crop = frame.GetInsetCropRect();
                 if (crop.Width <= 0 || crop.Height <= 0) return;
 
                 int x = Math.Max(0, Math.Min(crop.X, _currentScanMat.Width - 1));
