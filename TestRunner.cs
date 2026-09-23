@@ -47,12 +47,17 @@ namespace IrisPxS
                 Console.WriteLine($"  コマ #{i + 1}: X={r.X}, Y={r.Y}, W={r.Width}, H={r.Height}, Aspect={((double)r.Height / r.Width):F2}");
             }
 
-            // 意図的な傾き（+2.5度）の検出テスト
-            using var rotMat = Cv2.GetRotationMatrix2D(new Point2f(colorMat.Width / 2f, colorMat.Height / 2f), -2.5, 1.0);
-            using var tiltedColor = new Mat();
-            Cv2.WarpAffine(colorMat, tiltedColor, rotMat, colorMat.Size(), InterpolationFlags.Linear, BorderTypes.Replicate);
-            double detectedTiltedAngle = detectorService.DetectFilmSkewAngleFromContrast(tiltedColor);
-            Console.WriteLine($"意図的傾き (+2.50°) 画像のコントラスト検知結果: {detectedTiltedAngle:F2}° (誤差: {Math.Abs(detectedTiltedAngle - 2.5):F2}°)");
+            // フィルムとメディアなし部分のコントラストによる大角度傾き検出テスト (+2.5度, +6.5度, -8.5度)
+            double[] testAngles = { 2.5, 6.5, -8.5 };
+            foreach (var testAng in testAngles)
+            {
+                using var rotMat = Cv2.GetRotationMatrix2D(new Point2f(colorMat.Width / 2f, colorMat.Height / 2f), -testAng, 1.0);
+                using var tiltedColor = new Mat();
+                Cv2.WarpAffine(colorMat, tiltedColor, rotMat, colorMat.Size(), InterpolationFlags.Linear, BorderTypes.Constant, new Scalar(250, 250, 250)); // 周囲は素抜けガラス（メディアなし白色）
+                double detectedTiltedAngle = detectorService.DetectFilmSkewAngleFromMediaBoundary(tiltedColor);
+                double expectedAngle = skewAngle - testAng;
+                Console.WriteLine($"意図的付加傾き ({testAng:+0.00;-0.00}°): 期待値 {expectedAngle:+0.00;-0.00}° に対し検知 {detectedTiltedAngle:+0.00;-0.00}° (残差: {Math.Abs(detectedTiltedAngle - expectedAngle):F2}°)");
+            }
 
             // 4. ベースカラー自動検知 & NP変換テスト
             Console.WriteLine("\n[4/6] ベースカラー自動検知 & NP変換テスト...");

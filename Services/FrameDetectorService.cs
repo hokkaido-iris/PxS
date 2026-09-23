@@ -6,7 +6,7 @@ namespace IrisPxS.Services
     public class FrameDetectorService
     {
         /// <summary>
-        /// フィルム全体のコントラストから斜めの傾き角（Skew Angle）を検出し、
+        /// フィルムとメディアがない部分（透過光素抜けガラス）のコントラスト境界から斜めの傾き角（Skew Angle）を検出し、
         /// スキャン画像を自動正立（De-skew）した上で、選択フォーマットの物理寸法・縦横比に厳密に基づいたコマ枠を生成する
         /// </summary>
         public (Mat straightenedMat, double skewAngle, List<OpenCvSharp.Rect> frames) DetectAndStraighten(
@@ -27,8 +27,8 @@ namespace IrisPxS.Services
                 if (dpi < 150) dpi = 300;
             }
 
-            // 1. フィルム全体のコントラストから斜めの傾きを検出 (精度 0.1度)
-            double skewAngle = DetectFilmSkewAngleFromContrast(scanMat);
+            // 1. フィルムとメディアがない部分（素抜けガラス）のコントラスト境界から傾き角（度）を精密検出
+            double skewAngle = DetectFilmSkewAngleFromMediaBoundary(scanMat);
 
             // 2. 傾きがある場合（絶対値 0.1度以上）、画像を自動正立（回転補正）
             Mat workingMat;
@@ -48,13 +48,14 @@ namespace IrisPxS.Services
         }
 
         /// <summary>
-        /// フィルム全体のコントラスト（濃度勾配・エッジエネルギー）から斜めの傾き角（度）を精密に検出
+        /// フィルムとメディアがない部分（透過光の素抜け部・白色飽和領域）のコントラスト境界から
+        /// フィルムストリップの物理的な傾き角度（-45度〜+45度対応）を精密に検出する
         /// </summary>
-        public double DetectFilmSkewAngleFromContrast(Mat scanMat)
+        public double DetectFilmSkewAngleFromMediaBoundary(Mat scanMat)
         {
             try
             {
-                // 高速かつ大域的なコントラスト解析のため、最大長辺 800px に縮小
+                // 高速かつ大域的な解析のため、最大長辺 800px に縮小
                 double maxDim = Math.Max(scanMat.Width, scanMat.Height);
                 double scale = 800.0 / maxDim;
                 int smallW = Math.Max(10, (int)(scanMat.Width * scale));
@@ -66,101 +67,90 @@ namespace IrisPxS.Services
                 using var gray = new Mat();
                 Cv2.CvtColor(small, gray, ColorConversionCodes.BGR2GRAY);
 
-                // コントラスト勾配の計算 (Sobel X, Y)
-                using var gradX = new Mat();
-                using var gradY = new Mat();
-                Cv2.Sobel(gray, gradX, MatType.CV_32F, 1, 0, 3);
-                Cv2.Sobel(gray, gradY, MatType.CV_32F, 0, 1, 3);
+                // --- 1. メディアがない部分（透過光素抜けガラス）とフィルム領域の分離 ---
+                // スキャナーの透過原稿ユニットでは、フィルムが存在しない部分は光源が直通するため
+                // 輝度が極めて高く飽和に近い状態（白色）になります。
+                // 一方フィルムが存在する部分は未露光ベースであっても光を吸収するため明らかに暗くなります。
+                Cv2.MinMaxLoc(gray, out double minVal, out double maxVal);
 
-                // 勾配強度（コントラスト差）と勾配角度の集計
-                // フィルムの長辺・短辺・パーフォレーション・コマ境界面はすべて同一の傾き角度を持つため、
-                // 全体のコントラスト勾配を集計することで被写体ノイズに極めて強い角度推定を行う
-                int histBins = 401; // -20.0度 〜 +20.0度 (0.1度刻み)
-                double[] angleHistogram = new double[histBins];
-                double minAngle = -20.0;
-                double maxAngle = 20.0;
-                double step = 0.1;
+                // 素抜け領域の閾値（画像内最大輝度の85%〜90%、最低180）
+                double glassThreshold = Math.Max(180.0, maxVal * 0.88);
+                if (glassThreshold > 245.0) glassThreshold = 235.0;
 
-                bool isVertical = smallH > smallW;
+                // フィルム領域マスク (30 <= Y <= glassThreshold)
+                using var filmMask = new Mat();
+                Cv2.InRange(gray, new Scalar(30), new Scalar(glassThreshold), filmMask);
 
-                float[] gxArr = new float[smallW * smallH];
-                float[] gyArr = new float[smallW * smallH];
-                System.Runtime.InteropServices.Marshal.Copy(gradX.Data, gxArr, 0, gxArr.Length);
-                System.Runtime.InteropServices.Marshal.Copy(gradY.Data, gyArr, 0, gyArr.Length);
+                // パーフォレーション穴や未露光の抜けを埋めるモルフォロジー結合
+                int kSize = Math.Max(15, (int)(smallW * 0.04));
+                if (kSize % 2 == 0) kSize++;
+                using var kernel = Cv2.GetStructuringElement(MorphShapes.Rect, new OpenCvSharp.Size(kSize, kSize));
+                Cv2.MorphologyEx(filmMask, filmMask, MorphTypes.Close, kernel);
 
-                int totalPixels = gxArr.Length;
+                // --- 2. フィルム外郭輪郭の検出と最小外接回転矩形 (MinAreaRect) ---
+                Cv2.FindContours(filmMask, out var contours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
 
-                for (int i = 0; i < totalPixels; i++)
+                double candidateAngle = 0.0;
+
+                if (contours.Length > 0)
                 {
-                    float gx = gxArr[i];
-                    float gy = gyArr[i];
-                    float mag = (float)Math.Sqrt(gx * gx + gy * gy);
+                    // 最も面積の大きい輪郭（フィルムストリップ全体）
+                    var filmContours = contours
+                        .Where(c => Cv2.ContourArea(c) > (smallW * smallH * 0.03))
+                        .OrderByDescending(c => Cv2.ContourArea(c))
+                        .ToList();
 
-                    // 高コントラストなエッジ部（フィルム境界・コマ枠・ホルダー境界）のみを対象とする
-                    if (mag < 30.0f) continue;
-
-                    // 勾配角度（度）: -180 ~ +180
-                    double rad = Math.Atan2(gy, gx);
-                    double deg = rad * (180.0 / Math.PI);
-
-                    // エッジ接線方向 = 勾配法線 + 90度
-                    double tangentDeg = deg + 90.0;
-                    while (tangentDeg > 90.0) tangentDeg -= 180.0;
-                    while (tangentDeg < -90.0) tangentDeg += 180.0;
-
-                    // 縦ストリップの場合、主軸は90度付近 (または -90度付近)
-                    // 横ストリップの場合、主軸は0度付近
-                    double devAngle;
-                    if (isVertical)
+                    if (filmContours.Count > 0)
                     {
-                        // 縦軸（90度）からの傾き
-                        if (tangentDeg > 0)
-                            devAngle = tangentDeg - 90.0;
-                        else
-                            devAngle = tangentDeg + 90.0;
-                    }
-                    else
-                    {
-                        // 横軸（0度）からの傾き
-                        devAngle = tangentDeg;
-                    }
+                        var maxContour = filmContours[0];
+                        var rotRect = Cv2.MinAreaRect(maxContour);
+                        var pts = rotRect.Points();
 
-                    if (devAngle >= minAngle && devAngle <= maxAngle)
-                    {
-                        int bin = (int)Math.Round((devAngle - minAngle) / step);
-                        if (bin >= 0 && bin < histBins)
+                        // フィルムの長辺ベクトルを計算（フィルムは短辺に対して2倍〜8倍の長さを持つ）
+                        double dist01 = Math.Sqrt(Math.Pow(pts[1].X - pts[0].X, 2) + Math.Pow(pts[1].Y - pts[0].Y, 2));
+                        double dist12 = Math.Sqrt(Math.Pow(pts[2].X - pts[1].X, 2) + Math.Pow(pts[2].Y - pts[1].Y, 2));
+
+                        double dx, dy;
+                        if (dist01 >= dist12)
                         {
-                            angleHistogram[bin] += mag; // コントラスト強度で重み付け
+                            dx = pts[1].X - pts[0].X;
+                            dy = pts[1].Y - pts[0].Y;
+                        }
+                        else
+                        {
+                            dx = pts[2].X - pts[1].X;
+                            dy = pts[2].Y - pts[1].Y;
+                        }
+
+                        // 縦ストリップ（Y軸方向が長手）か横ストリップかの判定
+                        bool isVertical = Math.Abs(dy) >= Math.Abs(dx);
+
+                        if (isVertical)
+                        {
+                            // 常に下向き (dy > 0) のベクトルに正規化
+                            if (dy < 0) { dx = -dx; dy = -dy; }
+
+                            // 垂直軸 (dx = 0, dy > 0) からの傾き角（度）
+                            // 時計回り（右傾き）: dx > 0 => angle > 0
+                            // 反時計回り（左傾き）: dx < 0 => angle < 0
+                            candidateAngle = Math.Atan2(dx, dy) * (180.0 / Math.PI);
+                        }
+                        else
+                        {
+                            // 常に右向き (dx > 0) のベクトルに正規化
+                            if (dx < 0) { dx = -dx; dy = -dy; }
+
+                            // 水平軸 (dx > 0, dy = 0) からの傾き角（度）
+                            candidateAngle = Math.Atan2(dy, dx) * (180.0 / Math.PI);
                         }
                     }
                 }
 
-                // ヒストグラムの最大ピーク探索
-                int bestBin = -1;
-                double maxWeight = 0;
-                for (int b = 0; b < histBins; b++)
-                {
-                    if (angleHistogram[b] > maxWeight)
-                    {
-                        maxWeight = angleHistogram[b];
-                        bestBin = b;
-                    }
-                }
-
-                double coarseAngle = 0.0;
-                if (bestBin >= 0 && maxWeight > 500.0)
-                {
-                    coarseAngle = minAngle + bestBin * step;
-                }
-
-                // 投影プロファイルコントラスト（Projection Profile Variance）による精密検証
-                // coarseAngle 周囲 ±1.5度を 0.1度刻みで探索し、エッジが最も直立・直角になるピークを確定
-                double refinedAngle = RefineAngleByProjectionContrast(gray, isVertical, coarseAngle);
-                return refinedAngle;
+                return Math.Round(candidateAngle, 2);
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"DetectFilmSkewAngleFromContrast error: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"DetectFilmSkewAngleFromMediaBoundary error: {ex.Message}");
                 return 0.0;
             }
         }
@@ -173,18 +163,16 @@ namespace IrisPxS.Services
             double bestAngle = candidateAngle;
             double maxContrastScore = -1.0;
 
-            double searchStart = Math.Max(-20.0, candidateAngle - 1.5);
-            double searchEnd = Math.Min(20.0, candidateAngle + 1.5);
+            double searchStart = Math.Max(-45.0, candidateAngle - 2.0);
+            double searchEnd = Math.Min(45.0, candidateAngle + 2.0);
 
-            for (double angle = searchStart; angle <= searchEnd; angle += 0.1)
+            for (double angle = searchStart; angle <= searchEnd; angle += 0.05)
             {
                 using var rotMat = Cv2.GetRotationMatrix2D(new Point2f(gray.Width / 2f, gray.Height / 2f), -angle, 1.0);
                 using var rotated = new Mat();
                 Cv2.WarpAffine(gray, rotated, rotMat, gray.Size(), InterpolationFlags.Linear, BorderTypes.Replicate);
 
                 // 投影プロファイルの計算
-                // 縦ストリップの場合: 列ごとの投影（X軸）の微分自乗和（エッジの急峻度）をコントラストとする
-                // 横ストリップの場合: 行ごとの投影（Y軸）の微分自乗和
                 double contrastScore = 0;
 
                 if (isVertical)
@@ -422,9 +410,12 @@ namespace IrisPxS.Services
                 using var gray = new Mat();
                 Cv2.CvtColor(small, gray, ColorConversionCodes.BGR2GRAY);
 
-                // スキャナーガラス白飛び(>240)とホルダー漆黒(<35)を除いたフィルム帯領域
+                Cv2.MinMaxLoc(gray, out _, out double maxVal);
+                double glassThreshold = Math.Max(180.0, maxVal * 0.88);
+                if (glassThreshold > 245.0) glassThreshold = 235.0;
+
                 using var mask = new Mat();
-                Cv2.InRange(gray, new Scalar(35), new Scalar(240), mask);
+                Cv2.InRange(gray, new Scalar(30), new Scalar(glassThreshold), mask);
 
                 using var kernel = Cv2.GetStructuringElement(MorphShapes.Rect, new OpenCvSharp.Size(15, 15));
                 Cv2.MorphologyEx(mask, mask, MorphTypes.Close, kernel);
@@ -461,12 +452,20 @@ namespace IrisPxS.Services
         }
 
         /// <summary>
-        /// 既存のシグネチャ互換用
+        /// 既存シグネチャ互換用
         /// </summary>
         public List<OpenCvSharp.Rect> DetectFrames(Mat scanMat, FilmFormat format, int dpi = 0)
         {
             var (_, _, frames) = DetectAndStraighten(scanMat, format, dpi);
             return frames;
+        }
+
+        /// <summary>
+        /// 既存シグネチャ互換用
+        /// </summary>
+        public double DetectFilmSkewAngle(Mat scanMat)
+        {
+            return DetectFilmSkewAngleFromMediaBoundary(scanMat);
         }
     }
 }
