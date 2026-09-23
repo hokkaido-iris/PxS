@@ -324,72 +324,145 @@ namespace IrisPxS.Services
         }
 
         /// <summary>
-        /// 正立された画像上でフィルムストリップ位置を特定し、フォーマット通りのコマ枠を配置
+        /// 正立された画像上でフィルムストリップ位置を特定し、フォーマット通りのコマ枠を確実に配置
         /// </summary>
         private List<OpenCvSharp.Rect> DetectFramesOnStraightened(Mat scanMat, FilmFormat format, int dpi)
         {
             var frames = new List<OpenCvSharp.Rect>();
-            bool isVertical = scanMat.Height > scanMat.Width;
+            if (scanMat == null || scanMat.Empty()) return frames;
 
-            // フォーマットから厳密なサイズ・縦横比・ピッチを取得
+            bool isVertical = scanMat.Height >= scanMat.Width;
+
+            // DPI 不整合（高DPI設定のままプレビュー画像に適用した場合など）の自動検出と是正
+            // 物理サイズから算出した枠がスキャン画像全体よりも大きい場合は、画像実寸から実効DPIを再計算
             GetFormatDimensions(format, isVertical, dpi, out int targetW, out int targetH, out int pitchPx);
+
+            if ((isVertical && targetH >= scanMat.Height) || (!isVertical && targetW >= scanMat.Width))
+            {
+                // 画像の実寸法からGT-X820透過エリア仕様（長辺約240mm）に基づき適正DPIを再算出
+                int maxDim = Math.Max(scanMat.Width, scanMat.Height);
+                dpi = (int)Math.Round((double)maxDim / (240.0 / 25.4));
+                if (dpi < 100) dpi = 150;
+                GetFormatDimensions(format, isVertical, dpi, out targetW, out targetH, out pitchPx);
+            }
 
             // フィルム領域の特定
             var filmBounds = DetectFilmStripBounds(scanMat);
 
+            int desiredCount = format.DefaultFramesPerStrip > 0 ? format.DefaultFramesPerStrip : 6;
+
             if (isVertical)
             {
-                // 縦ストリップ: 横方向(X)はフィルム帯の中央にぴったり配置
-                int frameW = targetW;
+                int frameW = Math.Min(targetW, scanMat.Width - 4);
                 int frameH = targetH;
 
-                int startX = filmBounds.X + (filmBounds.Width - frameW) / 2;
-                if (startX < 0) startX = Math.Max(0, (scanMat.Width - frameW) / 2);
-                if (startX + frameW > scanMat.Width) startX = Math.Max(0, scanMat.Width - frameW);
+                // X方向（幅方向）の中央位置決定: 検出されたフィルム帯があればその中央、なければ画像全体の中央
+                int startX;
+                if (filmBounds.Width >= frameW && filmBounds.X >= 0)
+                {
+                    startX = filmBounds.X + (filmBounds.Width - frameW) / 2;
+                }
+                else
+                {
+                    startX = (scanMat.Width - frameW) / 2;
+                }
+                startX = Math.Max(0, Math.Min(startX, scanMat.Width - frameW));
 
-                // コマ開始Y位置の検出（フィルム帯の上端から）
-                int startY = filmBounds.Y + (int)Math.Round(2.0 * dpi / 25.4); // 2mm余白
-                if (startY < 0) startY = 10;
+                // Y方向（コマ送り方向）の開始位置とコマ数
+                int marginPx = (int)Math.Round(3.0 * dpi / 25.4);
+                int startY = filmBounds.Y >= 0 ? filmBounds.Y + marginPx : marginPx;
 
-                int availableHeight = scanMat.Height - startY;
-                int maxCount = Math.Max(1, availableHeight / pitchPx);
-                int countToGenerate = format.DefaultFramesPerStrip > 0
-                    ? Math.Min(format.DefaultFramesPerStrip, maxCount)
-                    : maxCount;
+                // スキャン画像内に収まる最大コマ数
+                int countToGenerate = desiredCount;
+                if (startY + countToGenerate * pitchPx > scanMat.Height)
+                {
+                    // 上端から収まらない場合、中央揃えで収まるか試行
+                    int totalSpan = (countToGenerate - 1) * pitchPx + frameH;
+                    if (totalSpan <= scanMat.Height)
+                    {
+                        startY = (scanMat.Height - totalSpan) / 2;
+                    }
+                    else
+                    {
+                        // それでも収まらない場合は、入るだけのコマ数に調整
+                        countToGenerate = Math.Max(1, (scanMat.Height - marginPx * 2) / pitchPx);
+                        startY = marginPx;
+                    }
+                }
 
                 for (int i = 0; i < countToGenerate; i++)
                 {
                     int y = startY + i * pitchPx;
-                    if (y + frameH > scanMat.Height) break;
+                    if (y + frameH > scanMat.Height)
+                    {
+                        y = Math.Max(0, scanMat.Height - frameH);
+                    }
 
                     frames.Add(new OpenCvSharp.Rect(startX, y, frameW, frameH));
+                }
+
+                // フェイルセーフ: 万一0コマなら中央に強制配置
+                if (frames.Count == 0)
+                {
+                    frames.Add(new OpenCvSharp.Rect(
+                        Math.Max(0, (scanMat.Width - frameW) / 2),
+                        Math.Max(0, (scanMat.Height - frameH) / 2),
+                        frameW,
+                        Math.Min(frameH, scanMat.Height)));
                 }
             }
             else
             {
-                // 横ストリップ: 縦方向(Y)はフィルム帯の中央に配置
                 int frameW = targetW;
-                int frameH = targetH;
+                int frameH = Math.Min(targetH, scanMat.Height - 4);
 
-                int startY = filmBounds.Y + (filmBounds.Height - frameH) / 2;
-                if (startY < 0) startY = Math.Max(0, (scanMat.Height - frameH) / 2);
-                if (startY + frameH > scanMat.Height) startY = Math.Max(0, scanMat.Height - frameH);
+                int startY;
+                if (filmBounds.Height >= frameH && filmBounds.Y >= 0)
+                {
+                    startY = filmBounds.Y + (filmBounds.Height - frameH) / 2;
+                }
+                else
+                {
+                    startY = (scanMat.Height - frameH) / 2;
+                }
+                startY = Math.Max(0, Math.Min(startY, scanMat.Height - frameH));
 
-                int startX = filmBounds.X + (int)Math.Round(2.0 * dpi / 25.4);
-                if (startX < 0) startX = 10;
+                int marginPx = (int)Math.Round(3.0 * dpi / 25.4);
+                int startX = filmBounds.X >= 0 ? filmBounds.X + marginPx : marginPx;
 
-                int availableWidth = scanMat.Width - startX;
-                int maxCount = Math.Max(1, availableWidth / pitchPx);
-                int countToGenerate = format.DefaultFramesPerStrip > 0
-                    ? Math.Min(format.DefaultFramesPerStrip, maxCount)
-                    : maxCount;
+                int countToGenerate = desiredCount;
+                if (startX + countToGenerate * pitchPx > scanMat.Width)
+                {
+                    int totalSpan = (countToGenerate - 1) * pitchPx + frameW;
+                    if (totalSpan <= scanMat.Width)
+                    {
+                        startX = (scanMat.Width - totalSpan) / 2;
+                    }
+                    else
+                    {
+                        countToGenerate = Math.Max(1, (scanMat.Width - marginPx * 2) / pitchPx);
+                        startX = marginPx;
+                    }
+                }
 
                 for (int i = 0; i < countToGenerate; i++)
                 {
                     int x = startX + i * pitchPx;
-                    if (x + frameW > scanMat.Width) break;
+                    if (x + frameW > scanMat.Width)
+                    {
+                        x = Math.Max(0, scanMat.Width - frameW);
+                    }
 
                     frames.Add(new OpenCvSharp.Rect(x, startY, frameW, frameH));
+                }
+
+                if (frames.Count == 0)
+                {
+                    frames.Add(new OpenCvSharp.Rect(
+                        Math.Max(0, (scanMat.Width - frameW) / 2),
+                        Math.Max(0, (scanMat.Height - frameH) / 2),
+                        Math.Min(frameW, scanMat.Width),
+                        frameH));
                 }
             }
 

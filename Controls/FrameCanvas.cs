@@ -22,7 +22,28 @@ namespace IrisPxS.Controls
 
         public static readonly DependencyProperty FramesProperty =
             DependencyProperty.Register(nameof(Frames), typeof(ObservableCollection<FilmFrame>), typeof(FrameCanvas),
-                new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
+                new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender, OnFramesChanged));
+
+        private static void OnFramesChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+        {
+            if (d is FrameCanvas canvas)
+            {
+                if (e.OldValue is System.Collections.Specialized.INotifyCollectionChanged oldColl)
+                {
+                    oldColl.CollectionChanged -= canvas.Frames_CollectionChanged;
+                }
+                if (e.NewValue is System.Collections.Specialized.INotifyCollectionChanged newColl)
+                {
+                    newColl.CollectionChanged += canvas.Frames_CollectionChanged;
+                }
+                canvas.InvalidateVisual();
+            }
+        }
+
+        private void Frames_CollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+        {
+            InvalidateVisual();
+        }
 
         public ObservableCollection<FilmFrame>? Frames
         {

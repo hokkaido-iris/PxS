@@ -207,6 +207,29 @@ namespace IrisPxS
             }
         }
 
+        /// <summary>
+        /// 現在メモリ上に展開されているスキャン画像の実際の解像度（DPI）を取得する
+        /// </summary>
+        private int GetCurrentScanMatDpi()
+        {
+            // 1. カレントストリップのScanDpiがあればそれを最優先
+            if (_currentStrip != null && _currentStrip.ScanDpi > 0)
+            {
+                return _currentStrip.ScanDpi;
+            }
+
+            // 2. 画像サイズとGT-X820透過原稿エリアから実効DPIを自動推定
+            if (_currentScanMat != null && !_currentScanMat.IsDisposed)
+            {
+                int maxDim = Math.Max(_currentScanMat.Width, _currentScanMat.Height);
+                double estDpi = maxDim / (240.0 / 25.4);
+                int[] standardDpis = { 300, 600, 1200, 2400, 3200, 4800, 6400, 9600, 12800 };
+                return standardDpis.OrderBy(d => Math.Abs(d - estDpi)).First();
+            }
+
+            return 300;
+        }
+
         private int GetSelectedScanDpi()
         {
             if (CmbDpi.SelectedItem is string text)
@@ -630,7 +653,11 @@ namespace IrisPxS
 
         private void CmbFilmFormat_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            // フォーマット変更
+            if (_isUpdatingUi) return;
+            if (_currentScanMat != null && !_currentScanMat.IsDisposed)
+            {
+                PerformAutoDetectFrames();
+            }
         }
 
         private void CmbDpi_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -680,7 +707,7 @@ namespace IrisPxS
             }
 
             var format = GetSelectedFormat();
-            int dpi = GetSelectedScanDpi();
+            int dpi = GetCurrentScanMatDpi();
             TxtStatus.Text = $"フィルム全体のコントラストから傾き検知およびコマ枠配置を実行中 (フォーマット: {format.DisplayName}, {dpi} DPI)...";
 
             var (straightenedMat, skewAngle, detectedRects) = _detectorService.DetectAndStraighten(_currentScanMat, format, dpi);
@@ -753,8 +780,16 @@ namespace IrisPxS
                 UpdateFrameThumbnail(frame);
             }
 
+            ScanCanvas.Frames = null;
             ScanCanvas.Frames = _currentRoll.AllFrames;
             ScanCanvas.InvalidateVisual();
+
+            LstFilmStrip.ItemsSource = null;
+            LstFilmStrip.ItemsSource = _currentRoll.AllFrames;
+
+            DgFramesTable.ItemsSource = null;
+            DgFramesTable.ItemsSource = _currentRoll.AllFrames;
+
             if (_currentRoll.AllFrames.Count > 0)
             {
                 SelectFrame(_currentRoll.AllFrames[0]);
@@ -776,13 +811,13 @@ namespace IrisPxS
 
             if (_currentStrip == null)
             {
-                _currentStrip = new FilmStrip { Name = "Strip 1", ScanDpi = GetSelectedScanDpi() };
+                _currentStrip = new FilmStrip { Name = "Strip 1", ScanDpi = GetCurrentScanMatDpi() };
                 _currentRoll.Strips.Add(_currentStrip);
             }
 
             var format = GetSelectedFormat();
-            int dpi = GetSelectedScanDpi();
-            bool isVertical = _currentScanMat.Height > _currentScanMat.Width;
+            int dpi = GetCurrentScanMatDpi();
+            bool isVertical = _currentScanMat.Height >= _currentScanMat.Width;
             FrameDetectorService.GetFormatDimensions(format, isVertical, dpi, out int defaultW, out int defaultH, out _);
 
             int startX = Math.Max(0, (_currentScanMat.Width - defaultW) / 2);
@@ -806,8 +841,16 @@ namespace IrisPxS
             _currentRoll.AllFrames.Add(newFrame);
 
             UpdateFrameThumbnail(newFrame);
+            ScanCanvas.Frames = null;
             ScanCanvas.Frames = _currentRoll.AllFrames;
             ScanCanvas.InvalidateVisual();
+
+            LstFilmStrip.ItemsSource = null;
+            LstFilmStrip.ItemsSource = _currentRoll.AllFrames;
+
+            DgFramesTable.ItemsSource = null;
+            DgFramesTable.ItemsSource = _currentRoll.AllFrames;
+
             SelectFrame(newFrame);
             UpdateFrameSummary();
         }
