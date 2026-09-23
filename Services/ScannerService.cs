@@ -107,6 +107,22 @@ namespace IrisPxS.Services
             IProgress<string>? progress = null,
             CancellationToken ct = default)
         {
+            // 透過原稿モードの場合は、上蓋TPUランプを点灯できるTWAIN Workerを最優先で使用
+            string? workerPath = FindTwainWorkerPath();
+            if (!string.IsNullOrEmpty(workerPath) && File.Exists(workerPath))
+            {
+                try
+                {
+                    progress?.Report($"TWAINスキャンエンジンを起動中 (解像度: {dpi} DPI, モード: {(isTransmissive ? "透過原稿/TPU点灯" : "反射原稿")})...");
+                    return await ScanViaTwainWorkerAsync(workerPath, dpi, isTransmissive, false, progress, ct);
+                }
+                catch (Exception twainEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"TwainWorker failed, falling back to WIA: {twainEx}");
+                    progress?.Report($"TWAINスキャン警告 ({twainEx.Message})。WIAエンジンへ切り替えます...");
+                }
+            }
+
             return await RunInStaAsync(() =>
             {
                 progress?.Report($"スキャナー初期化中 (解像度: {dpi} DPI)...");
@@ -239,9 +255,24 @@ namespace IrisPxS.Services
         /// </summary>
         public async Task<(Mat ColorMat, Mat? IrMat)> ScanWithDialogAsync(IProgress<string>? progress = null)
         {
+            // TWAIN WorkerでEpson Scanの純正ダイアログを表示してスキャン
+            string? workerPath = FindTwainWorkerPath();
+            if (!string.IsNullOrEmpty(workerPath) && File.Exists(workerPath))
+            {
+                try
+                {
+                    progress?.Report("EPSON Scan TWAINダイアログを起動中...");
+                    return await ScanViaTwainWorkerAsync(workerPath, 300, true, true, progress, CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"TwainWorker dialog failed: {ex}");
+                }
+            }
+
             return await RunInStaAsync(() =>
             {
-                progress?.Report("スキャナーダイアログを表示中...");
+                progress?.Report("スキャナーダイアログを表示中 (WIA)...");
                 try
                 {
                     dynamic commonDialog = Activator.CreateInstance(Type.GetTypeFromProgID("WIA.CommonDialog")!)!;
@@ -277,6 +308,121 @@ namespace IrisPxS.Services
                     throw new InvalidOperationException($"スキャナーダイアログエラー: {ex.Message}", ex);
                 }
             });
+        }
+
+        /// <summary>
+        /// 32-bit TWAIN Worker プロセスを起動してスキャンを実行
+        /// </summary>
+        private async Task<(Mat ColorMat, Mat? IrMat)> ScanViaTwainWorkerAsync(
+            string workerExePath,
+            int dpi,
+            bool isTransmissive,
+            bool showUi,
+            IProgress<string>? progress,
+            CancellationToken ct)
+        {
+            string tempOutputFile = Path.Combine(Path.GetTempPath(), $"IrisPxS_TwainScan_{Guid.NewGuid():N}.bmp");
+            string args = $"--output \"{tempOutputFile}\" --dpi {dpi} {(isTransmissive ? "--tpu" : "--reflective")} {(showUi ? "--ui" : "")}";
+
+            progress?.Report($"透過原稿スキャン実行中 (解像度: {dpi} DPI, フタ側ランプ点灯)...");
+
+            var startInfo = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = workerExePath,
+                Arguments = args,
+                UseShellExecute = false,
+                CreateNoWindow = !showUi,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                WorkingDirectory = Path.GetDirectoryName(workerExePath) ?? AppDomain.CurrentDomain.BaseDirectory
+            };
+
+            using var process = new System.Diagnostics.Process { StartInfo = startInfo };
+            var outputLines = new List<string>();
+            var errorLines = new List<string>();
+
+            process.OutputDataReceived += (s, e) =>
+            {
+                if (!string.IsNullOrEmpty(e.Data))
+                {
+                    outputLines.Add(e.Data);
+                    if (e.Data.Contains("[TwainWorker]"))
+                    {
+                        progress?.Report(e.Data.Replace("[TwainWorker]", "").Trim());
+                    }
+                }
+            };
+            process.ErrorDataReceived += (s, e) =>
+            {
+                if (!string.IsNullOrEmpty(e.Data))
+                {
+                    errorLines.Add(e.Data);
+                }
+            };
+
+            process.Start();
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+
+            using (ct.Register(() =>
+            {
+                try { if (!process.HasExited) process.Kill(); } catch { }
+            }))
+            {
+                await process.WaitForExitAsync(ct);
+            }
+
+            if (process.ExitCode != 0 || !File.Exists(tempOutputFile))
+            {
+                string errMsg = string.Join("\n", errorLines);
+                if (string.IsNullOrWhiteSpace(errMsg)) errMsg = string.Join("\n", outputLines);
+                throw new InvalidOperationException($"TWAINスキャンが完了しませんでした (終了コード {process.ExitCode}): {errMsg}");
+            }
+
+            progress?.Report("画像データ解析中...");
+            var colorMat = Cv2.ImRead(tempOutputFile, ImreadModes.Color);
+            try { File.Delete(tempOutputFile); } catch { }
+
+            if (colorMat.Empty())
+            {
+                throw new InvalidOperationException("取得したスキャン画像の読み込みに失敗しました。");
+            }
+
+            // 超高解像度指定 (>6400dpi) の場合の補間
+            if (dpi > 6400 && colorMat.Width > 0)
+            {
+                double scaleFactor = (double)dpi / 6400.0;
+                if (scaleFactor > 1.1)
+                {
+                    var upscaled = new Mat();
+                    Cv2.Resize(colorMat, upscaled, new OpenCvSharp.Size(colorMat.Width * scaleFactor, colorMat.Height * scaleFactor), 0, 0, InterpolationFlags.Cubic);
+                    colorMat.Dispose();
+                    colorMat = upscaled;
+                }
+            }
+
+            Mat irMat = ExtractOrSimulateIrChannel(colorMat);
+            progress?.Report("透過原稿スキャン完了！");
+            return (colorMat, irMat);
+        }
+
+        private static string? FindTwainWorkerPath()
+        {
+            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            var candidates = new[]
+            {
+                Path.Combine(baseDir, "TwainWorker", "TwainWorker.exe"),
+                Path.Combine(baseDir, "TwainWorker.exe"),
+                Path.GetFullPath(Path.Combine(baseDir, @"..\..\..\TwainWorker\bin\Release\net8.0-windows\TwainWorker.exe")),
+                Path.GetFullPath(Path.Combine(baseDir, @"..\..\..\TwainWorker\bin\Debug\net8.0-windows\TwainWorker.exe")),
+                @"C:\Users\tarui\.gemini\antigravity-ide\scratch\iris-pxs\TwainWorker\bin\Release\net8.0-windows\TwainWorker.exe"
+            };
+
+            foreach (var path in candidates)
+            {
+                if (File.Exists(path)) return path;
+            }
+            return null;
         }
 
         private void SetWiaProperty(dynamic item, int propertyId, object value)

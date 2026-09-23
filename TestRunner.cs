@@ -25,7 +25,7 @@ namespace IrisPxS
             // 1. スキャナー接続テスト
             Console.WriteLine("\n[1/6] スキャナー検索テスト...");
             var scanners = await scannerService.GetConnectedScannersAsync();
-            Console.WriteLine($"検出されたスキャナー数: {scanners.Count}");
+            Console.WriteLine($"検出スキャナー数: {scanners.Count}");
             foreach (var sc in scanners)
             {
                 Console.WriteLine($" - {sc.Name} (ID: {sc.DeviceId}, Epson: {sc.IsEpsonGtx820})");
