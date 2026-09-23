@@ -92,12 +92,6 @@ namespace IrisPxS
 
         private void InitializeProfileCombo()
         {
-            var profiles = FilmProfile.GetPresetProfiles();
-            CmbFilmProfile.ItemsSource = profiles;
-            CmbFilmProfile.DisplayMemberPath = nameof(FilmProfile.Name);
-            CmbFilmProfile.SelectedValuePath = nameof(FilmProfile.Id);
-            CmbFilmProfile.SelectedIndex = 0; // Portra 400
-
             // フィルム銘柄 ComboBox のプリセット候補
             CmbFilmBrand.Items.Clear();
             CmbFilmBrand.Items.Add("Kodak Portra 400");
@@ -359,6 +353,36 @@ namespace IrisPxS
         }
 
         // ======================================================================
+        // 【フィルム種別】Color/B&W, Negative/Positive
+        // ======================================================================
+
+        private void FilmType_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_isUpdatingUi) return;
+
+            bool isColor = RbColor.IsChecked == true;
+            bool isNeg = RbNegative.IsChecked == true;
+
+            _currentRoll.IsColor = isColor;
+            _currentRoll.IsNegative = isNeg;
+
+            // 全コマにフィルム種別を反映
+            foreach (var f in _currentRoll.AllFrames)
+            {
+                f.IsColor = isColor;
+                f.IsNegative = isNeg;
+                UpdateFrameThumbnail(f);
+            }
+
+            if (RbViewSingle.IsChecked == true)
+            {
+                UpdateSingleFramePreview();
+            }
+
+            TxtStatus.Text = $"フィルム種別変更: {(isColor ? "Color" : "B&W")} / {(isNeg ? "Negative" : "Positive")}";
+        }
+
+        // ======================================================================
         // 【中央】Control Panel ビュー切替 & 表示制御
         // ======================================================================
 
@@ -369,6 +393,7 @@ namespace IrisPxS
                 GridFullView.Visibility = Visibility.Visible;
                 GridSingleView.Visibility = Visibility.Collapsed;
                 GridTableView.Visibility = Visibility.Collapsed;
+                GridIceDiffView.Visibility = Visibility.Collapsed;
                 TxtViewModeTitle.Text = "スキャン全体ビュー";
             }
             else if (RbViewSingle.IsChecked == true)
@@ -376,6 +401,7 @@ namespace IrisPxS
                 GridFullView.Visibility = Visibility.Collapsed;
                 GridSingleView.Visibility = Visibility.Visible;
                 GridTableView.Visibility = Visibility.Collapsed;
+                GridIceDiffView.Visibility = Visibility.Collapsed;
                 TxtViewModeTitle.Text = "コマ個別ビュー";
                 UpdateSingleFramePreview();
             }
@@ -384,9 +410,56 @@ namespace IrisPxS
                 GridFullView.Visibility = Visibility.Collapsed;
                 GridSingleView.Visibility = Visibility.Collapsed;
                 GridTableView.Visibility = Visibility.Visible;
+                GridIceDiffView.Visibility = Visibility.Collapsed;
                 TxtViewModeTitle.Text = "全コマ設定表";
                 DgFramesTable.ItemsSource = null;
                 DgFramesTable.ItemsSource = _currentRoll.AllFrames;
+            }
+            else if (RbViewIce.IsChecked == true)
+            {
+                GridFullView.Visibility = Visibility.Collapsed;
+                GridSingleView.Visibility = Visibility.Collapsed;
+                GridTableView.Visibility = Visibility.Collapsed;
+                GridIceDiffView.Visibility = Visibility.Visible;
+                TxtViewModeTitle.Text = "ICE 赤外線差分マップビュー";
+                UpdateIceDiffPreview();
+            }
+        }
+
+        private void BtnShowIceDiff_Click(object sender, RoutedEventArgs e)
+        {
+            RbViewIce.IsChecked = true;
+            ViewMode_Changed(sender, e);
+        }
+
+        private void UpdateIceDiffPreview()
+        {
+            if (_currentScanMat == null || _currentScanMat.IsDisposed)
+            {
+                ImgIceDiffPreview.Source = null;
+                return;
+            }
+
+            try
+            {
+                using var diffMat = _currentIrMat != null && !_currentIrMat.IsDisposed
+                    ? _dustService.GenerateDefectMaskFromIr(_currentIrMat, 2)
+                    : _dustService.GenerateDefectMaskFromColor(_currentScanMat, 2);
+
+                // 差分マスクを見やすくするため、黒背景にネオンシアン(0, 255, 255)でハイライト表示
+                using var colorDiff = new Mat();
+                Cv2.CvtColor(diffMat, colorDiff, ColorConversionCodes.GRAY2BGR);
+
+                using var coloredMask = new Mat(diffMat.Size(), MatType.CV_8UC3, new Scalar(255, 255, 0)); // BGR: Cyan
+                using var finalDiff = new Mat();
+                Cv2.BitwiseAnd(coloredMask, coloredMask, finalDiff, diffMat);
+
+                ImgIceDiffPreview.Source = finalDiff.ToBitmapSource();
+                TxtStatus.Text = "ICE 赤外線ゴミ・キズ差分マップを表示中";
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"UpdateIceDiffPreview error: {ex.Message}");
             }
         }
 
@@ -607,13 +680,14 @@ namespace IrisPxS
             }
 
             var format = GetSelectedFormat();
-            TxtStatus.Text = $"コマ自動認識を実行中 ({format.DisplayName})...";
+            int dpi = GetSelectedScanDpi();
+            TxtStatus.Text = $"コマ自動認識を実行中 (フォーマット: {format.DisplayName}, {dpi} DPI)...";
 
-            var detectedRects = _detectorService.DetectFrames(_currentScanMat, format);
+            var detectedRects = _detectorService.DetectFrames(_currentScanMat, format, dpi);
 
             if (_currentStrip == null)
             {
-                _currentStrip = new FilmStrip { Name = "Strip 1", ScanDpi = GetSelectedScanDpi() };
+                _currentStrip = new FilmStrip { Name = "Strip 1", ScanDpi = dpi };
                 _currentRoll.Strips.Add(_currentStrip);
             }
 
@@ -635,7 +709,8 @@ namespace IrisPxS
                     FNumber = 0.0,
                     ShutterSpeed = "",
                     ISO = _currentRoll.DefaultIso,
-                    ProfileId = (CmbFilmProfile.SelectedValue as string) ?? "portra400"
+                    IsColor = _currentRoll.IsColor,
+                    IsNegative = _currentRoll.IsNegative
                 };
 
                 // ベースカラー初期値
@@ -677,8 +752,13 @@ namespace IrisPxS
             }
 
             var format = GetSelectedFormat();
-            int defaultW = (int)(_currentScanMat.Width * 0.25);
-            int defaultH = (int)(defaultW / format.AspectRatio);
+            int dpi = GetSelectedScanDpi();
+            double mmToPx = (double)dpi / 25.4;
+            int defaultW = (int)Math.Round(format.PhysicalWidthMm * mmToPx);
+            int defaultH = (int)Math.Round(format.PhysicalHeightMm * mmToPx);
+
+            if (defaultW <= 20 || defaultW > _currentScanMat.Width) defaultW = (int)(_currentScanMat.Width * 0.85);
+            if (defaultH <= 20 || defaultH > _currentScanMat.Height) defaultH = (int)(defaultW / format.AspectRatio);
 
             int nextNum = _currentRoll.AllFrames.Count > 0 ? _currentRoll.AllFrames.Max(f => f.FrameNumber) + 1 : 1;
             var newFrame = new FilmFrame
@@ -690,7 +770,8 @@ namespace IrisPxS
                 IrImagePath = _currentStrip.FullScanIrPath,
                 CameraModel = "",
                 LensModel = "",
-                ProfileId = (CmbFilmProfile.SelectedValue as string) ?? "portra400"
+                IsColor = _currentRoll.IsColor,
+                IsNegative = _currentRoll.IsNegative
             };
 
             _currentStrip.Frames.Add(newFrame);
@@ -770,17 +851,6 @@ namespace IrisPxS
 
             if (_selectedFrame != null)
             {
-                UpdateFrameThumbnail(_selectedFrame);
-                if (RbViewSingle.IsChecked == true) UpdateSingleFramePreview();
-            }
-        }
-
-        private void CmbFilmProfile_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (_isUpdatingUi || _selectedFrame == null) return;
-            if (CmbFilmProfile.SelectedValue is string pid)
-            {
-                _selectedFrame.ProfileId = pid;
                 UpdateFrameThumbnail(_selectedFrame);
                 if (RbViewSingle.IsChecked == true) UpdateSingleFramePreview();
             }
@@ -913,7 +983,10 @@ namespace IrisPxS
                 RectBaseColorSwatch.Fill = new SolidColorBrush(System.Windows.Media.Color.FromRgb(frame.BaseColorR, frame.BaseColorG, frame.BaseColorB));
                 TxtBaseColorRgb.Text = $"R: {frame.BaseColorR}  G: {frame.BaseColorG}  B: {frame.BaseColorB}";
 
-                CmbFilmProfile.SelectedValue = frame.ProfileId;
+                RbColor.IsChecked = frame.IsColor;
+                RbBw.IsChecked = !frame.IsColor;
+                RbNegative.IsChecked = frame.IsNegative;
+                RbPositive.IsChecked = !frame.IsNegative;
 
                 SldExposure.Value = frame.Exposure;
                 SldContrast.Value = frame.Contrast;

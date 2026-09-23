@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:controls="clr-namespace:IrisPxS.Controls"
         mc:Ignorable="d"
-        Title="IRIS PxS - フィルムスキャニングシステム (Epson GT-X820)" Height="840" Width="1360"
+        Title="IRIS PxS - フィルムスキャニングシステム (Epson GT-X820)" Height="860" Width="1380"
         WindowStartupLocation="CenterScreen"
         Background="#F0F0F0" Foreground="#000000" FontFamily="Yu Gothic UI, Segoe UI, メイリオ" FontSize="12">
 
@@ -197,6 +197,30 @@
             <Border Grid.Column="0" Background="#F0F0F0" BorderBrush="#B0B0B0" BorderThickness="0,0,1,0" Padding="8">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                     <StackPanel>
+                        <!-- フィルム種別: Color/B&W, Negative/Positive (最上部) -->
+                        <GroupBox Header="フィルム種別">
+                            <StackPanel Margin="2">
+                                <!-- Color / B&W -->
+                                <Grid Margin="0,2,0,6">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <RadioButton x:Name="RbColor" Content="Color (カラー)" IsChecked="True" Grid.Column="0" GroupName="FilmColorType" Click="FilmType_Changed" FontWeight="SemiBold" />
+                                    <RadioButton x:Name="RbBw" Content="B&amp;W (モノクロ)" Grid.Column="1" GroupName="FilmColorType" Click="FilmType_Changed" FontWeight="SemiBold" />
+                                </Grid>
+                                <!-- Negative / Positive -->
+                                <Grid Margin="0,0,0,2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <RadioButton x:Name="RbNegative" Content="Negative (ネガ)" IsChecked="True" Grid.Column="0" GroupName="FilmPolarityType" Click="FilmType_Changed" FontWeight="SemiBold" />
+                                    <RadioButton x:Name="RbPositive" Content="Positive (ポジ)" Grid.Column="1" GroupName="FilmPolarityType" Click="FilmType_Changed" FontWeight="SemiBold" />
+                                </Grid>
+                            </StackPanel>
+                        </GroupBox>
+
                         <!-- ロール管理 -->
                         <GroupBox Header="ロール管理">
                             <StackPanel Margin="2">
@@ -225,10 +249,16 @@
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
-                                    <Button x:Name="BtnAutoDetect" Content="自動コマ認識" Grid.Column="0" Margin="0,0,2,0" FontWeight="SemiBold" Click="BtnAutoDetectFrames_Click" />
-                                    <Button x:Name="BtnAddFrame" Content="+ コマ枠追加" Grid.Column="1" Margin="2,0,0,0" Click="BtnAddFrame_Click" />
+                                    <Button x:Name="BtnAutoDetect" Content="自動コマ認識 (傾き自動補正)" Grid.ColumnSpan="2" Height="28" Margin="0,0,0,4" FontWeight="SemiBold" Click="BtnAutoDetectFrames_Click" ToolTip="フィルムの傾き角度と物理mmサイズを検知してコマ枠を正確に自動配置します" />
                                 </Grid>
-                                <Button x:Name="BtnDeleteFrame" Content="選択コマ枠を削除" Margin="0,2,0,0" Click="BtnDeleteFrame_Click" />
+                                <Grid Margin="0,0,0,2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Button x:Name="BtnAddFrame" Content="+ コマ枠追加" Grid.Column="0" Margin="0,0,2,0" Click="BtnAddFrame_Click" />
+                                    <Button x:Name="BtnDeleteFrame" Content="選択枠削除" Grid.Column="1" Margin="2,0,0,0" Click="BtnDeleteFrame_Click" />
+                                </Grid>
                             </StackPanel>
                         </GroupBox>
 
@@ -271,11 +301,12 @@
                             <TextBlock x:Name="TxtFrameSummary" Text="0 コマ登録" Foreground="#555555" FontSize="11" VerticalAlignment="Center" />
                         </StackPanel>
 
-                        <!-- 右上: アイコンのみの切替ボタン (全体ビュー / 個別ビュー / 全コマ設定表) -->
+                        <!-- 右上: アイコンのみの切替ボタン (全体 / 個別 / 全コマ設定表 / ICE差分) -->
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                             <RadioButton x:Name="RbViewFull" Style="{StaticResource IconViewButtonStyle}" Content="▤" IsChecked="True" ToolTip="スキャン全体ビュー (コマ割り・原稿台全体)" Click="ViewMode_Changed" />
                             <RadioButton x:Name="RbViewSingle" Style="{StaticResource IconViewButtonStyle}" Content="🖼" ToolTip="コマ個別ビュー (拡大表示・詳細確認)" Click="ViewMode_Changed" />
                             <RadioButton x:Name="RbViewTable" Style="{StaticResource IconViewButtonStyle}" Content="⊞" ToolTip="全コマ設定表 (メタデータ一括入力表)" Click="ViewMode_Changed" />
+                            <RadioButton x:Name="RbViewIce" Style="{StaticResource IconViewButtonStyle}" Content="⚡" ToolTip="ICE 赤外線ゴミ・キズ差分マップビュー" Click="ViewMode_Changed" />
                             <Separator Margin="6,2" Width="1" Background="#B0B0B0" />
                             <Button x:Name="BtnZoomFit" Content="全体" Width="40" Height="26" Margin="2,0" Click="BtnZoomFit_Click" ToolTip="画面に合わせる" />
                             <Button x:Name="BtnRotateRight" Content="⟳" Width="28" Height="26" Margin="2,0" FontSize="13" Click="BtnRotateFrame_Click" ToolTip="90度右回転" />
@@ -346,6 +377,20 @@
                             </DataGrid.Columns>
                         </DataGrid>
                     </Grid>
+
+                    <!-- ビュー 4: ICE 赤外線ゴミ・キズ差分マップビュー -->
+                    <Grid x:Name="GridIceDiffView" Visibility="Collapsed" Background="#1A1A1A">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="30" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <Border Grid.Row="0" Background="#2A2A2A" BorderBrush="#444444" BorderThickness="0,0,0,1" Padding="8,4">
+                            <TextBlock Text="赤外線スキャン(IR)から検出されたゴミ・キズの差分マスク (白く光っている箇所が検知された欠陥)" Foreground="#00FFCC" FontWeight="SemiBold" FontSize="11" VerticalAlignment="Center" />
+                        </Border>
+                        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                            <Image x:Name="ImgIceDiffPreview" Stretch="Uniform" RenderOptions.BitmapScalingMode="NearestNeighbor" Margin="10" />
+                        </ScrollViewer>
+                    </Grid>
                 </Grid>
             </Grid>
 
@@ -358,18 +403,18 @@
                         <!-- カラー補正 -->
                         <GroupBox Header="カラー補正">
                             <StackPanel Margin="2">
-                                <Label Content="ベースカラー (未露光オレンジマスク):" />
+                                <Label Content="ベースカラー (未露光部オレンジマスク):" />
                                 <Grid Margin="0,0,0,6">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
-                                    <Button x:Name="BtnAutoBaseColor" Content="自動検知" Grid.Column="0" Margin="0,0,2,0" Click="BtnAutoBaseColor_Click" />
+                                    <Button x:Name="BtnAutoBaseColor" Content="自動検知" Grid.Column="0" Margin="0,0,2,0" Click="BtnAutoBaseColor_Click" ToolTip="未露光部のオレンジマスクを精密自動検知" />
                                     <Button x:Name="BtnEyedropper" Content="スポイト" Grid.Column="1" Margin="2,0,0,0" Click="BtnEyedropper_Click" ToolTip="画面上のフィルム余白をクリックしてベース色を取得" />
                                 </Grid>
 
                                 <!-- ベースカラー プレビュー swatch -->
-                                <Border Height="24" BorderBrush="#888888" BorderThickness="1" Margin="0,0,0,6">
+                                <Border Height="24" BorderBrush="#888888" BorderThickness="1" Margin="0,0,0,8">
                                     <Grid>
                                         <Rectangle x:Name="RectBaseColorSwatch" Fill="#D77D4B" />
                                         <TextBlock x:Name="TxtBaseColorRgb" Text="R: 215  G: 125  B: 75" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold" FontSize="11" Foreground="#FFFFFF">
@@ -380,10 +425,7 @@
                                     </Grid>
                                 </Border>
 
-                                <Label Content="ネガポジ (NP) 変換プロファイル:" />
-                                <ComboBox x:Name="CmbFilmProfile" Margin="0,0,0,8" SelectionChanged="CmbFilmProfile_SelectionChanged" />
-
-                                <!-- 各種トーンスライダー -->
+                                <!-- トーン調整スライダー -->
                                 <Grid Margin="0,2">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="65" />
@@ -453,7 +495,8 @@
                                     <RadioButton x:Name="RbIceMedium" Content="標準" IsChecked="True" Margin="0,0,12,0" GroupName="IceStrength" Checked="RbIceStrength_Checked" />
                                     <RadioButton x:Name="RbIceStrong" Content="強" GroupName="IceStrength" Checked="RbIceStrength_Checked" />
                                 </StackPanel>
-                                <Button x:Name="BtnRunIceInpaint" Content="ゴミ傷の検知と修復を実行" Click="BtnRunIceInpaint_Click" ToolTip="赤外線チャンネルを利用した自動インペイント処理を実行します" />
+                                <Button x:Name="BtnShowIceDiff" Content="ICE 赤外線差分マップを表示" Height="26" Margin="0,0,0,4" FontWeight="SemiBold" Click="BtnShowIceDiff_Click" ToolTip="赤外線スキャンから検出されたゴミ・キズの差分画像を表示します" />
+                                <Button x:Name="BtnRunIceInpaint" Content="ゴミ傷の修復を実行" Click="BtnRunIceInpaint_Click" ToolTip="赤外線マスクを利用したインペイント修復を実行します" />
                             </StackPanel>
                         </GroupBox>
                     </StackPanel>

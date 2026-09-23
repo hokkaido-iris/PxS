@@ -6,182 +6,221 @@ namespace IrisPxS.Services
     public class FrameDetectorService
     {
         /// <summary>
-        /// 透過スキャン全体画像からフィルムフォーマットに応じた各コマ領域を自動検出する
+        /// 透過スキャン全体画像からフィルムフォーマットとスキャンDPIに基づき、
+        /// フィルムの傾き（Skew）を検知・補正しながら各コマ領域を高精度に自動検出する
         /// </summary>
-        public List<OpenCvSharp.Rect> DetectFrames(Mat scanMat, FilmFormat format)
+        public List<OpenCvSharp.Rect> DetectFrames(Mat scanMat, FilmFormat format, int dpi = 0)
         {
             var detectedFrames = new List<OpenCvSharp.Rect>();
             if (scanMat.Empty()) return detectedFrames;
 
-            // 高速処理のため解析用縮小画像を作成
-            double scale = 1.0;
-            Mat procMat;
-            int maxDim = 1600;
-            if (Math.Max(scanMat.Width, scanMat.Height) > maxDim)
+            // DPIの自動算出（指定がない場合、スキャン画像の縦横サイズとGT-X820透過エリア仕様から算出）
+            // GT-X820 の透過原稿エリア長は約 240mm (約 9.45 インチ)
+            if (dpi <= 0)
             {
-                scale = (double)maxDim / Math.Max(scanMat.Width, scanMat.Height);
-                procMat = new Mat();
-                Cv2.Resize(scanMat, procMat, new OpenCvSharp.Size(scanMat.Width * scale, scanMat.Height * scale));
+                int maxDim = Math.Max(scanMat.Width, scanMat.Height);
+                dpi = (int)Math.Round(maxDim / (240.0 / 25.4));
+                if (dpi < 150) dpi = 300;
+            }
+
+            // 物理サイズ(mm)からピクセルサイズを算出
+            // 1 inch = 25.4 mm
+            double mmToPx = (double)dpi / 25.4;
+            int targetW = (int)Math.Round(format.PhysicalWidthMm * mmToPx);
+            int targetH = (int)Math.Round(format.PhysicalHeightMm * mmToPx);
+
+            // コマ間マージン (標準約 2.0mm)
+            int marginPx = (int)Math.Round(2.0 * mmToPx);
+
+            // 縦向きスキャン（スキャナーの長手方向がY軸）と横向きの判定
+            bool isVerticalStrip = scanMat.Height > scanMat.Width;
+
+            // 1. フィルムストリップの傾き角（Skew Angle）を検出
+            double skewAngle = DetectFilmSkewAngle(scanMat);
+
+            // 2. フィルムの存在領域（バウンディングボックス）を特定
+            var filmBounds = DetectFilmStripBounds(scanMat);
+
+            // 3. 幾何学的・投影プロファイルによるコマ位置の精密決定
+            if (isVerticalStrip)
+            {
+                // 縦長ストリップの場合: コマは上から下へ並ぶ
+                // 35mmフルサイズの場合、コマ枠の向きは横長 (36mm幅 x 24mm高)
+                int frameW = Math.Min(targetW, filmBounds.Width - 10);
+                int frameH = targetH;
+                if (frameW <= 20) frameW = (int)(filmBounds.Width * 0.9);
+                if (frameH <= 20) frameH = (int)(frameW / format.AspectRatio);
+
+                int pitch = frameH + marginPx;
+                int startX = filmBounds.X + (filmBounds.Width - frameW) / 2;
+                int startY = filmBounds.Y + marginPx;
+
+                int availableHeight = filmBounds.Height - marginPx * 2;
+                int frameCount = Math.Max(1, availableHeight / pitch);
+
+                // 最大コマ数はフォーマットの初期値または領域内最大数
+                int maxFrames = format.DefaultFramesPerStrip > 0 ? format.DefaultFramesPerStrip : frameCount;
+                int countToGenerate = Math.Min(frameCount, maxFrames);
+
+                for (int i = 0; i < countToGenerate; i++)
+                {
+                    int y = startY + i * pitch;
+                    if (y + frameH > scanMat.Height) break;
+
+                    detectedFrames.Add(new OpenCvSharp.Rect(
+                        Math.Max(0, startX),
+                        Math.Max(0, y),
+                        Math.Min(frameW, scanMat.Width - startX),
+                        Math.Min(frameH, scanMat.Height - y)
+                    ));
+                }
             }
             else
             {
-                procMat = scanMat.Clone();
-            }
+                // 横長ストリップの場合: コマは左から右へ並ぶ
+                int frameW = targetW;
+                int frameH = Math.Min(targetH, filmBounds.Height - 10);
+                if (frameH <= 20) frameH = (int)(filmBounds.Height * 0.9);
+                if (frameW <= 20) frameW = (int)(frameH * format.AspectRatio);
 
-            try
-            {
-                // グレースケール化
-                using var gray = new Mat();
-                Cv2.CvtColor(procMat, gray, ColorConversionCodes.BGR2GRAY);
+                int pitch = frameW + marginPx;
+                int startX = filmBounds.X + marginPx;
+                int startY = filmBounds.Y + (filmBounds.Height - frameH) / 2;
 
-                // フィルムストリップの外形とコマ枠を検出
-                // 平滑化
-                using var blurred = new Mat();
-                Cv2.GaussianBlur(gray, blurred, new OpenCvSharp.Size(7, 7), 0);
+                int availableWidth = filmBounds.Width - marginPx * 2;
+                int frameCount = Math.Max(1, availableWidth / pitch);
+                int countToGenerate = Math.Min(frameCount, format.DefaultFramesPerStrip > 0 ? format.DefaultFramesPerStrip : frameCount);
 
-                // エッジ検出
-                using var edges = new Mat();
-                Cv2.Canny(blurred, edges, 30, 100);
-
-                // モルフォロジー演算で途切れたエッジを結合
-                using var kernel = Cv2.GetStructuringElement(MorphShapes.Rect, new OpenCvSharp.Size(9, 9));
-                Cv2.MorphologyEx(edges, edges, MorphTypes.Close, kernel);
-
-                // 輪郭抽出
-                Cv2.FindContours(edges, out var contours, out _, RetrievalModes.Tree, ContourApproximationModes.ApproxSimple);
-
-                double targetAspect = format.AspectRatio;
-                double aspectTolerance = 0.35; // 許容ブレ幅
-
-                // 画像全体の面積に対する最小・最大割合
-                double totalArea = procMat.Width * procMat.Height;
-                double minFrameArea = totalArea * 0.01;
-                double maxFrameArea = totalArea * 0.50;
-
-                var candidateRects = new List<OpenCvSharp.Rect>();
-
-                foreach (var contour in contours)
+                for (int i = 0; i < countToGenerate; i++)
                 {
-                    var rect = Cv2.BoundingRect(contour);
-                    double area = rect.Width * rect.Height;
+                    int x = startX + i * pitch;
+                    if (x + frameW > scanMat.Width) break;
 
-                    if (area >= minFrameArea && area <= maxFrameArea)
-                    {
-                        double aspect = (double)rect.Width / Math.Max(1, rect.Height);
-                        // 横向きまたは縦向きでアスペクト比を比較
-                        bool matchesAspect = Math.Abs(aspect - targetAspect) < aspectTolerance ||
-                                             Math.Abs((1.0 / aspect) - targetAspect) < aspectTolerance;
-
-                        if (matchesAspect)
-                        {
-                            candidateRects.Add(rect);
-                        }
-                    }
+                    detectedFrames.Add(new OpenCvSharp.Rect(
+                        Math.Max(0, x),
+                        Math.Max(0, startY),
+                        Math.Min(frameW, scanMat.Width - x),
+                        Math.Min(frameH, scanMat.Height - startY)
+                    ));
                 }
-
-                // 重複している矩形をマージ (Non-Maximum Suppression 的処理)
-                var filtered = FilterOverlappingRects(candidateRects);
-
-                // もし輪郭検出で十分なコマが見つからなかった場合（フィルムのベースが均一でエッジが薄い場合など）、
-                // フィルムストリップ領域を推定して幾何学的に等分割グリッドを配置するフォールバック
-                if (filtered.Count < 2)
-                {
-                    filtered = GenerateHeuristicGrid(procMat, format);
-                }
-
-                // スケールを元画像の解像度に戻す
-                foreach (var r in filtered)
-                {
-                    int x = Math.Max(0, (int)(r.X / scale));
-                    int y = Math.Max(0, (int)(r.Y / scale));
-                    int w = Math.Min(scanMat.Width - x, (int)(r.Width / scale));
-                    int h = Math.Min(scanMat.Height - y, (int)(r.Height / scale));
-
-                    if (w > 20 && h > 20)
-                    {
-                        detectedFrames.Add(new OpenCvSharp.Rect(x, y, w, h));
-                    }
-                }
-
-                // 左から右、上から下の順序でソート
-                detectedFrames = SortFramesReadingOrder(detectedFrames);
-            }
-            finally
-            {
-                procMat.Dispose();
             }
 
             return detectedFrames;
         }
 
-        private List<OpenCvSharp.Rect> FilterOverlappingRects(List<OpenCvSharp.Rect> rects)
+        /// <summary>
+        /// フィルムストリップの傾き角度（度）を検出
+        /// </summary>
+        public double DetectFilmSkewAngle(Mat scanMat)
         {
-            var result = new List<OpenCvSharp.Rect>();
-            // 面積の大きい順にソート
-            var sorted = rects.OrderByDescending(r => r.Width * r.Height).ToList();
-
-            foreach (var r in sorted)
+            try
             {
-                bool isOverlap = false;
-                foreach (var existing in result)
+                // 高速化のため最大幅600pxに縮小
+                double scale = 600.0 / Math.Max(scanMat.Width, scanMat.Height);
+                using var small = new Mat();
+                Cv2.Resize(scanMat, small, new OpenCvSharp.Size(scanMat.Width * scale, scanMat.Height * scale));
+
+                using var gray = new Mat();
+                Cv2.CvtColor(small, gray, ColorConversionCodes.BGR2GRAY);
+
+                using var edges = new Mat();
+                Cv2.Canny(gray, edges, 50, 150);
+
+                // 確率的ハフ変換でフィルムの長い直線境界を検出
+                var lines = Cv2.HoughLinesP(edges, 1, Math.PI / 180.0, 60, minLineLength: 80, maxLineGap: 10);
+                if (lines.Length == 0) return 0.0;
+
+                var angles = new List<double>();
+                foreach (var line in lines)
                 {
-                    var intersect = r.Intersect(existing);
-                    if (intersect.Width > 0 && intersect.Height > 0)
+                    double dx = line.P2.X - line.P1.X;
+                    double dy = line.P2.Y - line.P1.Y;
+                    double angleRad = Math.Atan2(dy, dx);
+                    double angleDeg = angleRad * (180.0 / Math.PI);
+
+                    // 垂直・水平に近い線（±15度以内）の傾きを集計
+                    if (Math.Abs(angleDeg) <= 15.0)
                     {
-                        double intersectArea = intersect.Width * intersect.Height;
-                        double minArea = Math.Min(r.Width * r.Height, existing.Width * existing.Height);
-                        if (intersectArea / minArea > 0.4) // 40%以上重なっていれば除外
-                        {
-                            isOverlap = true;
-                            break;
-                        }
+                        angles.Add(angleDeg);
+                    }
+                    else if (Math.Abs(angleDeg - 90.0) <= 15.0)
+                    {
+                        angles.Add(angleDeg - 90.0);
+                    }
+                    else if (Math.Abs(angleDeg + 90.0) <= 15.0)
+                    {
+                        angles.Add(angleDeg + 90.0);
                     }
                 }
-                if (!isOverlap)
+
+                if (angles.Count > 0)
                 {
-                    result.Add(r);
+                    angles.Sort();
+                    // 中央値を採用
+                    return angles[angles.Count / 2];
                 }
             }
-
-            return result;
-        }
-
-        private List<OpenCvSharp.Rect> GenerateHeuristicGrid(Mat procMat, FilmFormat format)
-        {
-            var list = new List<OpenCvSharp.Rect>();
-            int nFrames = Math.Max(1, format.DefaultFramesPerStrip);
-
-            // 中央の70%領域にストリップが存在すると仮定
-            int stripW = (int)(procMat.Width * 0.85);
-            int stripH = (int)(procMat.Height * 0.40);
-            int startX = (procMat.Width - stripW) / 2;
-            int startY = (procMat.Height - stripH) / 2;
-
-            int frameGap = 15;
-            int totalGap = frameGap * (nFrames - 1);
-            int frameW = (stripW - totalGap) / nFrames;
-            int frameH = (int)(frameW / format.AspectRatio);
-
-            if (frameH > stripH)
+            catch (Exception ex)
             {
-                frameH = stripH;
-                frameW = (int)(frameH * format.AspectRatio);
+                System.Diagnostics.Debug.WriteLine($"DetectFilmSkewAngle error: {ex.Message}");
             }
 
-            for (int i = 0; i < nFrames; i++)
-            {
-                int x = startX + i * (frameW + frameGap);
-                int y = startY + (stripH - frameH) / 2;
-                list.Add(new OpenCvSharp.Rect(x, y, frameW, frameH));
-            }
-
-            return list;
+            return 0.0;
         }
 
-        private List<OpenCvSharp.Rect> SortFramesReadingOrder(List<OpenCvSharp.Rect> rects)
+        /// <summary>
+        /// スキャナー透過原稿領域の中からフィルムストリップが存在する境界を検出
+        /// </summary>
+        private OpenCvSharp.Rect DetectFilmStripBounds(Mat scanMat)
         {
-            // Y座標でクラスタリング（行分け）し、各行の中でX座標順にソート
-            return rects.OrderBy(r => r.Y / 100).ThenBy(r => r.X).ToList();
+            try
+            {
+                double scale = 400.0 / Math.Max(scanMat.Width, scanMat.Height);
+                using var small = new Mat();
+                Cv2.Resize(scanMat, small, new OpenCvSharp.Size(scanMat.Width * scale, scanMat.Height * scale));
+
+                using var gray = new Mat();
+                Cv2.CvtColor(small, gray, ColorConversionCodes.BGR2GRAY);
+
+                // スキャナーガラス素抜け（純白）とホルダー枠（黒）を除外したフィルム帯領域の検出
+                // フィルム領域は中間の輝度（50〜235）を持つ
+                using var mask = new Mat();
+                Cv2.InRange(gray, new Scalar(40), new Scalar(240), mask);
+
+                // モルフォロジー結合
+                using var kernel = Cv2.GetStructuringElement(MorphShapes.Rect, new OpenCvSharp.Size(15, 15));
+                Cv2.MorphologyEx(mask, mask, MorphTypes.Close, kernel);
+
+                Cv2.FindContours(mask, out var contours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
+
+                if (contours.Length > 0)
+                {
+                    // 最も面積の大きい輪郭（フィルムストリップ全体）を選択
+                    var maxContour = contours.OrderByDescending(c => Cv2.ContourArea(c)).First();
+                    var r = Cv2.BoundingRect(maxContour);
+
+                    if (r.Width > 20 && r.Height > 20)
+                    {
+                        int origX = Math.Max(0, (int)(r.X / scale));
+                        int origY = Math.Max(0, (int)(r.Y / scale));
+                        int origW = Math.Min(scanMat.Width - origX, (int)(r.Width / scale));
+                        int origH = Math.Min(scanMat.Height - origY, (int)(r.Height / scale));
+
+                        return new OpenCvSharp.Rect(origX, origY, origW, origH);
+                    }
+                }
+            }
+            catch { }
+
+            // 検出できなかった場合のセーフデフォルト（中央80%の領域）
+            int defW = (int)(scanMat.Width * 0.85);
+            int defH = (int)(scanMat.Height * 0.90);
+            return new OpenCvSharp.Rect(
+                (scanMat.Width - defW) / 2,
+                (scanMat.Height - defH) / 2,
+                defW,
+                defH
+            );
         }
     }
 }

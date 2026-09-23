@@ -64,8 +64,23 @@ namespace IrisPxS.Models
 
         public string BaseColorHex => $"#{BaseColorR:X2}{BaseColorG:X2}{BaseColorB:X2}";
 
-        // --- フィルムプロファイル & 調整パラメータ ---
-        private string _profileId = "portra400";
+        // --- フィルム種別 (カラー/モノクロ, ネガ/ポジ) ---
+        private bool _isColor = true;
+        public bool IsColor
+        {
+            get => _isColor;
+            set { _isColor = value; OnPropertyChanged(); }
+        }
+
+        private bool _isNegative = true;
+        public bool IsNegative
+        {
+            get => _isNegative;
+            set { _isNegative = value; OnPropertyChanged(); }
+        }
+
+        // --- 調整パラメータ ---
+        private string _profileId = "standard";
         public string ProfileId
         {
             get => _profileId;

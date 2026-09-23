@@ -49,6 +49,20 @@ namespace IrisPxS.Models
             set { _filmStock = value; OnPropertyChanged(); }
         }
 
+        private bool _isColor = true;
+        public bool IsColor
+        {
+            get => _isColor;
+            set { _isColor = value; OnPropertyChanged(); }
+        }
+
+        private bool _isNegative = true;
+        public bool IsNegative
+        {
+            get => _isNegative;
+            set { _isNegative = value; OnPropertyChanged(); }
+        }
+
         private int _defaultIso = 0;
         public int DefaultIso
         {
