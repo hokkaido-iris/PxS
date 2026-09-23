@@ -111,35 +111,50 @@ namespace IrisPxS.Services
             {
                 progress?.Report($"スキャナー初期化中 (解像度: {dpi} DPI)...");
 
-                if (scanner == null || !scanner.IsConnected)
-                {
-                    progress?.Report("スキャナーが接続されていません。テストモードで実行します。");
-                    return GenerateMockScan(dpi);
-                }
-
                 try
                 {
                     dynamic deviceManager = Activator.CreateInstance(Type.GetTypeFromProgID("WIA.DeviceManager")!)!;
-                    dynamic? targetDevInfo = null;
+                dynamic? targetDevInfo = null;
 
+                // 指定されたスキャナーID、またはGT-X820を優先的に検索
+                foreach (dynamic info in deviceManager.DeviceInfos)
+                {
+                    string name = (string)info.Properties["Name"].Value;
+                    string devId = (string)info.DeviceID;
+
+                    if (scanner != null && devId == scanner.DeviceId)
+                    {
+                        targetDevInfo = info;
+                        break;
+                    }
+                    if (name.Contains("GT-X820", StringComparison.OrdinalIgnoreCase))
+                    {
+                        targetDevInfo = info;
+                        break;
+                    }
+                }
+
+                // GT-X820が未検出の場合、任意のスキャナーを検索
+                if (targetDevInfo == null)
+                {
                     foreach (dynamic info in deviceManager.DeviceInfos)
                     {
-                        if ((string)info.DeviceID == scanner.DeviceId)
+                        if ((int)info.Type == 1) // Scanner
                         {
                             targetDevInfo = info;
                             break;
                         }
                     }
+                }
 
-                    if (targetDevInfo == null)
-                    {
-                        progress?.Report("指定されたスキャナーが見つかりません。テストモードで実行します。");
-                        return GenerateMockScan(dpi);
-                    }
+                if (targetDevInfo == null)
+                {
+                    throw new InvalidOperationException("EPSON GT-X820 が検出されませんでした。USBケーブルおよび電源を確認してください。");
+                }
 
-                    progress?.Report("スキャナーに接続中...");
-                    dynamic device = targetDevInfo.Connect();
-                    dynamic item = device.Items[1];
+                progress?.Report("スキャナーに接続中 (EPSON GT-X820)...");
+                dynamic device = targetDevInfo.Connect();
+                dynamic item = device.Items[1];
 
                     // プロパティ設定
                     try
@@ -177,11 +192,19 @@ namespace IrisPxS.Services
                     progress?.Report($"スキャン中... (フィルム搬送/露光中: {dpi} DPI)");
                     dynamic imageFile = item.Transfer(WiaFormatBMP);
 
-                    progress?.Report("画像データ転送・デコード中...");
-                    dynamic binaryData = imageFile.FileData;
-                    byte[] bytes = (byte[])binaryData.get_BinaryData();
+                    progress?.Report("画像データ保存・読込中...");
+                    string tempScanPath = Path.Combine(Path.GetTempPath(), $"IrisPxS_Scan_{Guid.NewGuid():N}.bmp");
+                    if (File.Exists(tempScanPath)) File.Delete(tempScanPath);
 
-                    var colorMat = Cv2.ImDecode(bytes, ImreadModes.Color);
+                    imageFile.SaveFile(tempScanPath);
+
+                    var colorMat = Cv2.ImRead(tempScanPath, ImreadModes.Color);
+                    try { File.Delete(tempScanPath); } catch { }
+
+                    if (colorMat.Empty())
+                    {
+                        throw new InvalidOperationException("スキャナーから取得した画像データをデコードできませんでした。");
+                    }
 
                     // もしGT-X820で12800dpiを指定し、ドライバのハードウェア最大解像度(6400dpi等)で返ってきた場合は
                     // 要求解像度12800dpiに合わせて高品位バイキュービック補間
@@ -198,7 +221,6 @@ namespace IrisPxS.Services
                     }
 
                     // 赤外線(IR)チャンネルの生成・取得
-                    // GT-X820 の IR LED データを抽出、またはカラー画像の傷散乱成分からIRマスクをシミュレート
                     Mat irMat = ExtractOrSimulateIrChannel(colorMat);
 
                     progress?.Report("スキャン完了！");
@@ -206,9 +228,8 @@ namespace IrisPxS.Services
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"WIA Scan Error: {ex.Message}");
-                    progress?.Report($"実機スキャンでエラーが発生したため、サンプル画像を使用します: {ex.Message}");
-                    return GenerateMockScan(dpi);
+                    System.Diagnostics.Debug.WriteLine($"WIA Scan Error: {ex}");
+                    throw new InvalidOperationException($"スキャナー処理エラー: {ex.Message}", ex);
                 }
             });
         }

@@ -5,48 +5,48 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:controls="clr-namespace:IrisPxS.Controls"
         mc:Ignorable="d"
-        Title="IRIS PxS - Epson GT-X820 フィルムスキャニングシステム (業務用)" Height="800" Width="1280"
+        Title="IRIS PxS - Epson GT-X820 フィルムスキャニングシステム" Height="780" Width="1240"
         WindowStartupLocation="CenterScreen"
-        Background="#ECE9D8" Foreground="#000000" FontFamily="MS UI Gothic, Segoe UI" FontSize="12">
+        Background="#F0F0F0" Foreground="#000000" FontFamily="Yu Gothic UI, Segoe UI, メイリオ" FontSize="12">
 
     <Window.Resources>
-        <!-- Windows XP Classic Professional System Theme -->
-        <SolidColorBrush x:Key="ClassicBg" Color="#ECE9D8" />
-        <SolidColorBrush x:Key="ClassicDarkBg" Color="#7B7973" />
-        <SolidColorBrush x:Key="ClassicControlLight" Color="#FFFFFF" />
-        <SolidColorBrush x:Key="ClassicControlShadow" Color="#918E82" />
-        <SolidColorBrush x:Key="ClassicControlDarkShadow" Color="#404040" />
+        <!-- VB.NET / WinForms Standard Control Styles -->
+        <SolidColorBrush x:Key="WinFormBg" Color="#F0F0F0" />
+        <SolidColorBrush x:Key="BorderGray" Color="#A0A0A0" />
+        <SolidColorBrush x:Key="ControlLightGray" Color="#E1E1E1" />
+        <SolidColorBrush x:Key="ButtonHover" Color="#E5F1FB" />
+        <SolidColorBrush x:Key="ButtonPressed" Color="#CCE4F7" />
+        <SolidColorBrush x:Key="ButtonBorderHover" Color="#0078D7" />
 
-        <!-- XP Classic Button -->
+        <!-- WinForms Standard Button -->
         <Style TargetType="Button">
-            <Setter Property="Background" Value="#ECE9D8" />
+            <Setter Property="Background" Value="{StaticResource ControlLightGray}" />
             <Setter Property="Foreground" Value="#000000" />
-            <Setter Property="BorderBrush" Value="#003C74" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderGray}" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Padding" Value="8,3" />
+            <Setter Property="Padding" Value="8,2" />
             <Setter Property="Margin" Value="2" />
-            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Height" Value="25" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="outerBorder" BorderBrush="#003C74" BorderThickness="1" CornerRadius="2">
-                            <Border x:Name="innerBorder" BorderBrush="#FFFFFF" BorderThickness="1" Background="#ECE9D8">
-                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}" />
-                            </Border>
+                        <Border x:Name="bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}" />
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="innerBorder" Property="Background" Value="#F5F4EA" />
-                                <Setter TargetName="outerBorder" Property="BorderBrush" Value="#E68B2C" />
+                                <Setter TargetName="bd" Property="Background" Value="{StaticResource ButtonHover}" />
+                                <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource ButtonBorderHover}" />
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="innerBorder" Property="Background" Value="#DDD9CD" />
-                                <Setter TargetName="innerBorder" Property="BorderBrush" Value="#7B7973" />
+                                <Setter TargetName="bd" Property="Background" Value="{StaticResource ButtonPressed}" />
+                                <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource ButtonBorderHover}" />
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="innerBorder" Property="Background" Value="#ECE9D8" />
                                 <Setter Property="Foreground" Value="#888888" />
-                                <Setter TargetName="outerBorder" Property="BorderBrush" Value="#ACA899" />
+                                <Setter TargetName="bd" Property="Background" Value="#F5F5F5" />
+                                <Setter TargetName="bd" Property="BorderBrush" Value="#D0D0D0" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -54,33 +54,34 @@
             </Setter>
         </Style>
 
-        <!-- XP Classic GroupBox -->
+        <!-- WinForms Standard GroupBox -->
         <Style TargetType="GroupBox">
-            <Setter Property="BorderBrush" Value="#D4D0C8" />
+            <Setter Property="BorderBrush" Value="#B0B0B0" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Foreground" Value="#003399" />
-            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="Foreground" Value="#000000" />
+            <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Margin" Value="0,0,0,6" />
             <Setter Property="Padding" Value="6" />
         </Style>
 
-        <!-- XP Classic TextBox -->
+        <!-- WinForms Standard TextBox -->
         <Style TargetType="TextBox">
             <Setter Property="Background" Value="#FFFFFF" />
             <Setter Property="Foreground" Value="#000000" />
-            <Setter Property="BorderBrush" Value="#7F9DB9" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderGray}" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Padding" Value="3,2" />
+            <Setter Property="Padding" Value="4,2" />
+            <Setter Property="Height" Value="23" />
             <Setter Property="FontWeight" Value="Normal" />
         </Style>
 
-        <!-- XP Classic ComboBox -->
+        <!-- WinForms Standard ComboBox -->
         <Style TargetType="ComboBox">
             <Setter Property="Background" Value="#FFFFFF" />
             <Setter Property="Foreground" Value="#000000" />
-            <Setter Property="BorderBrush" Value="#7F9DB9" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderGray}" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Padding" Value="3,2" />
+            <Setter Property="Height" Value="23" />
             <Setter Property="FontWeight" Value="Normal" />
         </Style>
 
@@ -102,43 +103,43 @@
         </Style>
     </Window.Resources>
 
-    <Grid Background="#ECE9D8">
+    <Grid Background="#F0F0F0">
         <Grid.RowDefinitions>
-            <RowDefinition Height="22" />  <!-- 0: Menu Bar -->
-            <RowDefinition Height="38" />  <!-- 1: Toolbar -->
-            <RowDefinition Height="*" />   <!-- 2: 3-Pane Body -->
-            <RowDefinition Height="110" /> <!-- 3: Filmstrip Thumbnails -->
-            <RowDefinition Height="24" />  <!-- 4: Status Bar -->
+            <RowDefinition Height="24" />  <!-- MenuStrip -->
+            <RowDefinition Height="34" />  <!-- ToolStrip -->
+            <RowDefinition Height="*" />   <!-- Work Area (3 Columns) -->
+            <RowDefinition Height="100" /> <!-- Filmstrip Thumbnail Bar -->
+            <RowDefinition Height="24" />  <!-- StatusStrip -->
         </Grid.RowDefinitions>
 
-        <!-- 0. Menu Bar -->
-        <Menu Grid.Row="0" Background="#ECE9D8" BorderBrush="#D4D0C8" BorderThickness="0,0,0,1">
-            <MenuItem Header="ファイル(F)">
-                <MenuItem Header="画像ファイルを開く(O)..." Click="BtnOpenImage_Click" />
+        <!-- MenuStrip -->
+        <Menu Grid.Row="0" Background="#F5F6F7" BorderBrush="#D4D4D4" BorderThickness="0,0,0,1">
+            <MenuItem Header="ファイル(&amp;F)">
+                <MenuItem Header="画像を開く(&amp;O)..." Click="BtnOpenImage_Click" />
                 <Separator />
-                <MenuItem Header="フォルダとして書き出し(E)..." Click="BtnExportFolder_Click" />
-                <MenuItem Header="ZIPアーカイブとして書き出し(Z)..." Click="BtnExportZip_Click" />
+                <MenuItem Header="フォルダへ一括書き出し(&amp;E)..." Click="BtnExportFolder_Click" />
+                <MenuItem Header="ZIPアーカイブへ書き出し(&amp;Z)..." Click="BtnExportZip_Click" />
                 <Separator />
-                <MenuItem Header="終了(X)" Click="MenuExit_Click" />
+                <MenuItem Header="終了(&amp;X)" Click="MenuExit_Click" />
             </MenuItem>
-            <MenuItem Header="スキャナー(S)">
-                <MenuItem Header="プレビュースキャン (PreScan)" Click="BtnPreScan_Click" />
+            <MenuItem Header="スキャン(&amp;S)">
+                <MenuItem Header="予備スキャン (PreScan)" Click="BtnPreScan_Click" />
                 <MenuItem Header="本スキャン実行 (Scan)" Click="BtnScanCurrent_Click" />
                 <Separator />
-                <MenuItem Header="スキャナー再検出" Click="BtnRefreshScanner_Click" />
+                <MenuItem Header="スキャナー状態の再検出" Click="BtnRefreshScanner_Click" />
             </MenuItem>
-            <MenuItem Header="コマ割り(C)">
-                <MenuItem Header="自動コマ認識実行" Click="BtnAutoDetectFrames_Click" />
+            <MenuItem Header="コマ検出(&amp;C)">
+                <MenuItem Header="自動コマ認識を実行" Click="BtnAutoDetectFrames_Click" />
                 <MenuItem Header="コマ枠の追加" Click="BtnAddFrame_Click" />
-                <MenuItem Header="選択枠の削除" Click="BtnDeleteFrame_Click" />
+                <MenuItem Header="選択コマ枠の削除" Click="BtnDeleteFrame_Click" />
             </MenuItem>
-            <MenuItem Header="ヘルプ(H)">
-                <MenuItem Header="バージョン情報(A)..." Click="MenuAbout_Click" />
+            <MenuItem Header="ヘルプ(&amp;H)">
+                <MenuItem Header="バージョン情報(&amp;A)..." Click="MenuAbout_Click" />
             </MenuItem>
         </Menu>
 
-        <!-- 1. Toolbar -->
-        <Border Grid.Row="1" Background="#ECE9D8" BorderBrush="#D4D0C8" BorderThickness="0,0,0,1" Padding="4,2">
+        <!-- ToolStrip -->
+        <Border Grid.Row="1" Background="#FAFAFA" BorderBrush="#D4D4D4" BorderThickness="0,0,0,1" Padding="4,2">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
@@ -146,51 +147,48 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
-                <!-- Scan Buttons -->
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button x:Name="BtnPreScan" Content="🔍 予備スキャン (PreScan)" Width="150" Height="26" FontWeight="Bold" Click="BtnPreScan_Click" />
-                    <Button x:Name="BtnScanCurrent" Content="⚡ 本スキャン (Scan)" Width="130" Height="26" FontWeight="Bold" Margin="4,0,12,0" Click="BtnScanCurrent_Click" />
-                    <Button x:Name="BtnOpenImage" Content="開く..." Width="60" Height="26" Click="BtnOpenImage_Click" />
+                    <Button x:Name="BtnPreScan" Content="PreScan (予備スキャン)" Width="140" FontWeight="SemiBold" Click="BtnPreScan_Click" />
+                    <Button x:Name="BtnScanCurrent" Content="Scan (本スキャン)" Width="120" FontWeight="SemiBold" Margin="4,0,12,0" Click="BtnScanCurrent_Click" />
+                    <Button x:Name="BtnOpenImage" Content="画像読込..." Width="80" Click="BtnOpenImage_Click" />
                 </StackPanel>
 
-                <!-- Status & Format in Center -->
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0">
-                    <TextBlock Text="装置: " VerticalAlignment="Center" FontWeight="Bold" />
+                    <TextBlock Text="接続機器: " VerticalAlignment="Center" FontWeight="SemiBold" />
                     <TextBlock x:Name="TxtScannerStatus" Text="EPSON GT-X820 (Ready)" VerticalAlignment="Center" Foreground="#005500" Margin="0,0,16,0" />
 
-                    <TextBlock Text="フォーマット: " VerticalAlignment="Center" FontWeight="Bold" />
-                    <ComboBox x:Name="ComboFilmFormat" Width="210" Height="24" SelectionChanged="ComboFilmFormat_SelectionChanged" />
+                    <TextBlock Text="フィルム規格: " VerticalAlignment="Center" FontWeight="SemiBold" />
+                    <ComboBox x:Name="ComboFilmFormat" Width="200" SelectionChanged="ComboFilmFormat_SelectionChanged" />
                 </StackPanel>
 
-                <!-- Top Right Hardware Indicator -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button x:Name="BtnRefreshScanner" Content="装置再検索" Width="80" Height="26" Click="BtnRefreshScanner_Click" />
+                    <Button x:Name="BtnRefreshScanner" Content="機器再検索" Width="80" Click="BtnRefreshScanner_Click" />
                 </StackPanel>
             </Grid>
         </Border>
 
-        <!-- 2. Main 3-Pane Body -->
+        <!-- Work Area (3 Columns: Left Settings, Center Canvas, Right Parameters) -->
         <Grid Grid.Row="2" Margin="4">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="260" MinWidth="220" MaxWidth="340" />
+                <ColumnDefinition Width="250" MinWidth="220" MaxWidth="320" />
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="320" MinWidth="280" MaxWidth="400" />
+                <ColumnDefinition Width="310" MinWidth="270" MaxWidth="380" />
             </Grid.ColumnDefinitions>
 
-            <!-- LEFT PANE: Roll / Strip Settings & Scanner Setup -->
-            <Border Grid.Column="0" Background="#F5F4EA" BorderBrush="#7F9DB9" BorderThickness="1" Padding="6">
+            <!-- LEFT: Roll & Scan Settings -->
+            <Border Grid.Column="0" Background="#FFFFFF" BorderBrush="#B0B0B0" BorderThickness="1" Padding="6">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel>
-                        <!-- Roll Metadata -->
-                        <GroupBox Header="ロール管理 (フィルム1本)">
+                        <!-- Roll Metadata (All blank by default) -->
+                        <GroupBox Header="ロール管理">
                             <StackPanel>
-                                <Label Content="ロール番号 / 管理名:" />
+                                <Label Content="ロール名 / ID:" />
                                 <TextBox x:Name="TxtRollName" Text="" TextChanged="TxtRollName_TextChanged" />
 
-                                <Label Content="フィルム銘柄:" Margin="0,3,0,0" />
+                                <Label Content="フィルム銘柄:" Margin="0,2,0,0" />
                                 <TextBox x:Name="TxtRollFilmStock" Text="" TextChanged="TxtRollFilmStock_TextChanged" />
 
-                                <Grid Margin="0,3,0,0">
+                                <Grid Margin="0,2,0,0">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="*" />
@@ -200,7 +198,7 @@
                                         <TextBox x:Name="TxtRollCamera" Text="" />
                                     </StackPanel>
                                     <StackPanel Grid.Column="1" Margin="2,0,0,0">
-                                        <Label Content="標準レンズ:" />
+                                        <Label Content="使用レンズ:" />
                                         <TextBox x:Name="TxtRollLens" Text="" />
                                     </StackPanel>
                                 </Grid>
@@ -208,82 +206,82 @@
                         </GroupBox>
 
                         <!-- Hardware Scan Settings -->
-                        <GroupBox Header="スキャナー設定 (GT-X820)">
+                        <GroupBox Header="スキャン解像度設定">
                             <StackPanel>
-                                <Label Content="本スキャン解像度:" />
+                                <Label Content="解像度 (DPI):" />
                                 <ComboBox x:Name="ComboScanDpi" SelectedIndex="1">
                                     <ComboBoxItem Content="1200 DPI" />
-                                    <ComboBoxItem Content="2400 DPI (標準)" />
+                                    <ComboBoxItem Content="2400 DPI (推奨)" />
                                     <ComboBoxItem Content="3200 DPI" />
                                     <ComboBoxItem Content="4800 DPI" />
-                                    <ComboBoxItem Content="6400 DPI (光学限界)" />
+                                    <ComboBoxItem Content="6400 DPI (光学上限)" />
                                     <ComboBoxItem Content="9600 DPI (補間)" />
                                     <ComboBoxItem Content="12800 DPI (最大補間)" />
                                 </ComboBox>
 
-                                <CheckBox x:Name="ChkTransmissive" Content="透過原稿ユニット (TPU)" IsChecked="True" Margin="0,6,0,3" />
-                                <CheckBox x:Name="ChkAutoDetectAfterScan" Content="スキャン後コマ自動検出" IsChecked="True" Margin="0,0,0,2" />
+                                <CheckBox x:Name="ChkTransmissive" Content="透過原稿ユニット (TPU) 使用" IsChecked="True" Margin="0,6,0,2" />
+                                <CheckBox x:Name="ChkAutoDetectAfterScan" Content="スキャン後自動コマ割り" IsChecked="True" Margin="0,0,0,2" />
                             </StackPanel>
                         </GroupBox>
 
                         <!-- Strips in Roll -->
-                        <GroupBox Header="スキャン済みストリップ一覧">
+                        <GroupBox Header="スキャン済みストリップ">
                             <StackPanel>
-                                <ListBox x:Name="ListStrips" Height="100" BorderBrush="#7F9DB9" SelectionChanged="ListStrips_SelectionChanged">
+                                <ListBox x:Name="ListStrips" Height="90" BorderBrush="#B0B0B0" SelectionChanged="ListStrips_SelectionChanged">
                                     <ListBox.ItemTemplate>
                                         <DataTemplate>
                                             <TextBlock Text="{Binding Name}" Margin="2" />
                                         </DataTemplate>
                                     </ListBox.ItemTemplate>
                                 </ListBox>
-                                <Button x:Name="BtnAutoDetectFrames" Content="コマ再検出" Height="24" Margin="0,4,0,0" Click="BtnAutoDetectFrames_Click" />
+                                <Button x:Name="BtnAutoDetectFrames" Content="コマ再検出実行" Height="24" Margin="0,4,0,0" Click="BtnAutoDetectFrames_Click" />
                             </StackPanel>
                         </GroupBox>
 
                         <!-- Batch Export -->
-                        <GroupBox Header="一括書き出し">
+                        <GroupBox Header="エクスポート">
                             <StackPanel>
-                                <Label Content="出力形式:" />
+                                <Label Content="画像形式:" />
                                 <ComboBox x:Name="ComboExportFormat" SelectedIndex="0">
-                                    <ComboBoxItem Content="JPEG (高品質)" />
+                                    <ComboBoxItem Content="JPEG (高品質 95%)" />
                                     <ComboBoxItem Content="TIFF (ロスレス)" />
                                     <ComboBoxItem Content="PNG (ロスレス)" />
                                 </ComboBox>
                                 <CheckBox x:Name="ChkContactSheet" Content="コンタクトシートを出力" IsChecked="True" Margin="0,4,0,6" />
 
-                                <Button x:Name="BtnExportFolder" Content="フォルダへ一括書き出し..." Height="28" FontWeight="Bold" Margin="0,0,0,3" Click="BtnExportFolder_Click" />
-                                <Button x:Name="BtnExportZip" Content="ZIPアーカイブ一括書き出し..." Height="28" Margin="0,0,0,0" Click="BtnExportZip_Click" />
+                                <Button x:Name="BtnExportFolder" Content="フォルダへ一括書き出し..." Height="26" FontWeight="SemiBold" Margin="0,0,0,3" Click="BtnExportFolder_Click" />
+                                <Button x:Name="BtnExportZip" Content="ZIPアーカイブとして書き出し..." Height="26" Margin="0,0,0,0" Click="BtnExportZip_Click" />
                             </StackPanel>
                         </GroupBox>
                     </StackPanel>
                 </ScrollViewer>
             </Border>
 
-            <!-- CENTER PANE: FrameCanvas -->
-            <Border Grid.Column="1" Background="#505050" BorderBrush="#7F9DB9" BorderThickness="1" Margin="4,0">
+            <!-- CENTER: Preview Canvas -->
+            <Border Grid.Column="1" Background="#404040" BorderBrush="#B0B0B0" BorderThickness="1" Margin="4,0">
                 <Grid>
-                    <controls:FrameCanvas x:Name="MainCanvas" Background="#3A3A3A" />
+                    <controls:FrameCanvas x:Name="MainCanvas" Background="#303030" />
 
                     <!-- Floating Canvas Tools -->
-                    <Border Background="#ECE9D8" BorderBrush="#7F9DB9" BorderThickness="1" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="6" Padding="4">
+                    <Border Background="#F5F6F7" BorderBrush="#B0B0B0" BorderThickness="1" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="6" Padding="2">
                         <StackPanel Orientation="Horizontal">
                             <Button x:Name="BtnFitView" Content="全体表示" Height="22" Width="60" Click="BtnFitView_Click" />
                             <ToggleButton x:Name="ToggleEyedropper" Content="スポイト" Height="22" Width="55" Margin="2,0" Checked="ToggleEyedropper_Checked" Unchecked="ToggleEyedropper_Unchecked" />
                             <Button x:Name="BtnAddFrame" Content="枠追加" Height="22" Width="50" Click="BtnAddFrame_Click" />
-                            <Button x:Name="BtnDeleteFrame" Content="削除" Height="22" Width="45" Click="BtnDeleteFrame_Click" />
+                            <Button x:Name="BtnDeleteFrame" Content="枠削除" Height="22" Width="50" Click="BtnDeleteFrame_Click" />
                         </StackPanel>
                     </Border>
                 </Grid>
             </Border>
 
-            <!-- RIGHT PANE: Parameter Tuning & Exif Metadata (XP Professional Form) -->
-            <Border Grid.Column="2" Background="#F5F4EA" BorderBrush="#7F9DB9" BorderThickness="1" Padding="6">
+            <!-- RIGHT: Parameters & Exif Editor -->
+            <Border Grid.Column="2" Background="#FFFFFF" BorderBrush="#B0B0B0" BorderThickness="1" Padding="6">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel>
                         <!-- Frame Positive Preview -->
-                        <GroupBox Header="選択コマ ポジ変換プレビュー">
+                        <GroupBox Header="選択コマ プレビュー">
                             <StackPanel>
-                                <Border Background="#202020" BorderBrush="#7F9DB9" BorderThickness="1" Height="130" Margin="0,0,0,4">
+                                <Border Background="#1A1A1A" BorderBrush="#B0B0B0" BorderThickness="1" Height="120" Margin="0,0,0,4">
                                     <Image x:Name="ImgPositivePreview" Stretch="Uniform" />
                                 </Border>
                                 <Grid>
@@ -293,33 +291,33 @@
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
                                     <TextBlock x:Name="TxtSelectedFrameNo" Text="コマ未選択" FontWeight="Bold" VerticalAlignment="Center" />
-                                    <Button x:Name="BtnRotateCcw" Grid.Column="1" Content="↺ 90°" Width="45" Height="22" Click="BtnRotateCcw_Click" />
-                                    <Button x:Name="BtnRotateCw" Grid.Column="2" Content="↻ 90°" Width="45" Height="22" Margin="2,0,0,0" Click="BtnRotateCw_Click" />
+                                    <Button x:Name="BtnRotateCcw" Grid.Column="1" Content="左回転" Width="50" Height="22" Click="BtnRotateCcw_Click" />
+                                    <Button x:Name="BtnRotateCw" Grid.Column="2" Content="右回転" Width="50" Height="22" Margin="2,0,0,0" Click="BtnRotateCw_Click" />
                                 </Grid>
                             </StackPanel>
                         </GroupBox>
 
                         <!-- Base Color & NP Engine -->
-                        <GroupBox Header="NP変換・ベース色補正">
+                        <GroupBox Header="カラー補正 &amp; NP変換">
                             <StackPanel>
                                 <Label Content="ベースカラー (オレンジマスク):" />
                                 <Grid Margin="0,0,0,4">
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="28" />
+                                        <ColumnDefinition Width="24" />
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
-                                    <Border x:Name="BorderBaseColorPreview" Background="#D77D4B" BorderBrush="#000000" BorderThickness="1" Height="20" />
+                                    <Border x:Name="BorderBaseColorPreview" Background="#D77D4B" BorderBrush="#000000" BorderThickness="1" Height="18" />
                                     <TextBlock x:Name="TxtBaseColorHex" Grid.Column="1" Text="#D77D4B" VerticalAlignment="Center" Margin="6,0,0,0" FontSize="11" />
                                     <Button x:Name="BtnAutoDetectBase" Grid.Column="2" Content="自動検知" Height="22" Width="60" Click="BtnAutoDetectBase_Click" />
                                 </Grid>
 
-                                <Label Content="フィルム銘柄プロファイル:" />
+                                <Label Content="フィルムプロファイル:" />
                                 <ComboBox x:Name="ComboFilmProfiles" Margin="0,0,0,4" SelectionChanged="ComboFilmProfiles_SelectionChanged" />
 
-                                <Grid Margin="0,2">
+                                <Grid Margin="0,1">
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="55" />
+                                        <ColumnDefinition Width="50" />
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="30" />
                                     </Grid.ColumnDefinitions>
@@ -328,9 +326,9 @@
                                     <TextBlock x:Name="TxtExposureVal" Grid.Column="2" Text="0.0" FontSize="10" HorizontalAlignment="Right" VerticalAlignment="Center" />
                                 </Grid>
 
-                                <Grid Margin="0,2">
+                                <Grid Margin="0,1">
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="55" />
+                                        <ColumnDefinition Width="50" />
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="30" />
                                     </Grid.ColumnDefinitions>
@@ -339,9 +337,9 @@
                                     <TextBlock x:Name="TxtContrastVal" Grid.Column="2" Text="1.0" FontSize="10" HorizontalAlignment="Right" VerticalAlignment="Center" />
                                 </Grid>
 
-                                <Grid Margin="0,2">
+                                <Grid Margin="0,1">
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="55" />
+                                        <ColumnDefinition Width="50" />
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="30" />
                                     </Grid.ColumnDefinitions>
@@ -350,9 +348,9 @@
                                     <TextBlock x:Name="TxtSaturationVal" Grid.Column="2" Text="1.0" FontSize="10" HorizontalAlignment="Right" VerticalAlignment="Center" />
                                 </Grid>
 
-                                <Grid Margin="0,2">
+                                <Grid Margin="0,1">
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="55" />
+                                        <ColumnDefinition Width="50" />
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="30" />
                                     </Grid.ColumnDefinitions>
@@ -364,20 +362,20 @@
                         </GroupBox>
 
                         <!-- Dust & Scratch Removal -->
-                        <GroupBox Header="赤外線ゴミ・キズ除去 (ICE)">
+                        <GroupBox Header="赤外線ゴミ除去 (ICE)">
                             <StackPanel>
-                                <CheckBox x:Name="ChkDustRemoval" Content="自動ゴミ・キズ除去を実行" IsChecked="True" Checked="ChkDustRemoval_Checked" Unchecked="ChkDustRemoval_Checked" />
-                                <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                                    <Label Content="強度: " VerticalAlignment="Center" />
-                                    <RadioButton x:Name="RadioDustWeak" Content="弱" GroupName="DustStrXP" Margin="4,0" Checked="RadioDust_Checked" />
-                                    <RadioButton x:Name="RadioDustNormal" Content="標準" GroupName="DustStrXP" IsChecked="True" Margin="4,0" Checked="RadioDust_Checked" />
-                                    <RadioButton x:Name="RadioDustStrong" Content="強" GroupName="DustStrXP" Margin="4,0" Checked="RadioDust_Checked" />
+                                <CheckBox x:Name="ChkDustRemoval" Content="ゴミ・キズ除去処理を適用" IsChecked="True" Checked="ChkDustRemoval_Checked" Unchecked="ChkDustRemoval_Checked" />
+                                <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
+                                    <Label Content="処理強度: " VerticalAlignment="Center" />
+                                    <RadioButton x:Name="RadioDustWeak" Content="弱" GroupName="DustStrWinForm" Margin="4,0" Checked="RadioDust_Checked" />
+                                    <RadioButton x:Name="RadioDustNormal" Content="標準" GroupName="DustStrWinForm" IsChecked="True" Margin="4,0" Checked="RadioDust_Checked" />
+                                    <RadioButton x:Name="RadioDustStrong" Content="強" GroupName="DustStrWinForm" Margin="4,0" Checked="RadioDust_Checked" />
                                 </StackPanel>
                             </StackPanel>
                         </GroupBox>
 
-                        <!-- Exif Metadata Editor (Blank by default for professional operation) -->
-                        <GroupBox Header="Exifメタデータ入力 (コマ個別)">
+                        <!-- Exif Metadata Editor (Blank by default) -->
+                        <GroupBox Header="Exifメタデータ入力">
                             <StackPanel>
                                 <Grid>
                                     <Grid.ColumnDefinitions>
@@ -411,7 +409,7 @@
                                     </StackPanel>
                                 </Grid>
 
-                                <Grid Margin="0,3,0,0">
+                                <Grid Margin="0,2,0,0">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="*" />
@@ -426,10 +424,10 @@
                                     </StackPanel>
                                 </Grid>
 
-                                <Label Content="コマ個別メモ:" Margin="0,3,0,0" />
-                                <TextBox x:Name="TxtFrameNotes" Height="36" TextWrapping="Wrap" LostFocus="ExifField_Changed" />
+                                <Label Content="コマ個別メモ:" Margin="0,2,0,0" />
+                                <TextBox x:Name="TxtFrameNotes" Height="30" TextWrapping="Wrap" LostFocus="ExifField_Changed" />
 
-                                <Button x:Name="BtnCopyPrevExif" Content="前のコマからExifを複製" Height="24" Margin="0,4,0,0" Click="BtnCopyPrevExif_Click" />
+                                <Button x:Name="BtnCopyPrevExif" Content="前コマのExifをコピー" Height="23" Margin="0,4,0,0" Click="BtnCopyPrevExif_Click" />
                             </StackPanel>
                         </GroupBox>
                     </StackPanel>
@@ -437,8 +435,8 @@
             </Border>
         </Grid>
 
-        <!-- 3. Filmstrip Thumbnails Bar (Classic Windows Style) -->
-        <Border Grid.Row="3" Background="#ECE9D8" BorderBrush="#7F9DB9" BorderThickness="0,1,0,0" Padding="4">
+        <!-- Bottom Filmstrip Bar -->
+        <Border Grid.Row="3" Background="#F0F0F0" BorderBrush="#B0B0B0" BorderThickness="0,1,0,0" Padding="4">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
@@ -446,12 +444,12 @@
                 </Grid.ColumnDefinitions>
 
                 <StackPanel VerticalAlignment="Center" Margin="4,0,8,0">
-                    <TextBlock Text="フィルムストリップ" FontWeight="Bold" />
-                    <TextBlock x:Name="TxtTotalFramesCount" Text="全 0 コマ" FontSize="11" Foreground="#444444" />
+                    <TextBlock Text="フィルムストリップ" FontWeight="SemiBold" />
+                    <TextBlock x:Name="TxtTotalFramesCount" Text="0 コマ" FontSize="11" Foreground="#555555" />
                 </StackPanel>
 
                 <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                    <ListBox x:Name="ListThumbnails" Background="#D4D0C8" BorderBrush="#7F9DB9" SelectionChanged="ListThumbnails_SelectionChanged">
+                    <ListBox x:Name="ListThumbnails" Background="#FFFFFF" BorderBrush="#B0B0B0" SelectionChanged="ListThumbnails_SelectionChanged">
                         <ListBox.ItemsPanel>
                             <ItemsPanelTemplate>
                                 <StackPanel Orientation="Horizontal" />
@@ -459,14 +457,14 @@
                         </ListBox.ItemsPanel>
                         <ListBox.ItemTemplate>
                             <DataTemplate>
-                                <Border Background="#FFFFFF" BorderBrush="#7F9DB9" BorderThickness="1" Margin="2" Width="100" Height="80" Padding="2">
+                                <Border Background="#FAFAFA" BorderBrush="#C0C0C0" BorderThickness="1" Margin="2" Width="90" Height="75" Padding="2">
                                     <Grid>
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="*" />
                                             <RowDefinition Height="Auto" />
                                         </Grid.RowDefinitions>
                                         <Image Source="{Binding Thumbnail}" Stretch="Uniform" />
-                                        <TextBlock Grid.Row="1" Text="{Binding FrameNumber, StringFormat='#{0}'}" FontWeight="Bold" HorizontalAlignment="Center" FontSize="10" />
+                                        <TextBlock Grid.Row="1" Text="{Binding FrameNumber, StringFormat='#{0}'}" FontWeight="SemiBold" HorizontalAlignment="Center" FontSize="10" />
                                     </Grid>
                                 </Border>
                             </DataTemplate>
@@ -476,18 +474,18 @@
             </Grid>
         </Border>
 
-        <!-- 4. Windows XP Classic Status Bar -->
-        <StatusBar Grid.Row="4" Background="#ECE9D8" BorderBrush="#D4D0C8" BorderThickness="0,1,0,0">
+        <!-- StatusStrip -->
+        <StatusBar Grid.Row="4" Background="#F0F0F0" BorderBrush="#D4D4D4" BorderThickness="0,1,0,0">
             <StatusBarItem Width="300">
                 <TextBlock x:Name="TxtStatusMessage" Text="準備完了" />
             </StatusBarItem>
             <Separator />
-            <StatusBarItem Width="150">
+            <StatusBarItem Width="160">
                 <TextBlock x:Name="TxtStatusDevice" Text="GT-X820: 待機中" />
             </StatusBarItem>
             <Separator />
             <StatusBarItem HorizontalAlignment="Right">
-                <ProgressBar x:Name="ProgressBarMain" Width="180" Height="14" Visibility="Collapsed" />
+                <ProgressBar x:Name="ProgressBarMain" Width="160" Height="14" Visibility="Collapsed" />
             </StatusBarItem>
         </StatusBar>
     </Grid>
