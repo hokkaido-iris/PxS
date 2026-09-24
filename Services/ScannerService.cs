@@ -118,7 +118,13 @@ namespace IrisPxS.Services
                 }
                 catch (Exception twainEx)
                 {
-                    System.Diagnostics.Debug.WriteLine($"TwainWorker failed, falling back to WIA: {twainEx}");
+                    System.Diagnostics.Debug.WriteLine($"TwainWorker failed: {twainEx}");
+                    if (isTransmissive)
+                    {
+                        // 透過原稿モード（フィルムスキャン）の場合、WIAにフォールバックすると反射原稿（通常原稿台ランプ）でスキャンされてしまうため、
+                        // 誤った反射スキャンを実行せず、TWAINエラーを正しく通知する
+                        throw new InvalidOperationException($"透過原稿(フィルム)スキャンエラー: {twainEx.Message}\n透過原稿ユニット(TPU)の接続、フィルムホルダの設置、またはスキャナー電源を確認してください。", twainEx);
+                    }
                     progress?.Report($"TWAINスキャン警告 ({twainEx.Message})。WIAエンジンへ切り替えます...");
                 }
             }

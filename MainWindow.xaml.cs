@@ -388,7 +388,7 @@ namespace IrisPxS
                 _isUpdatingUi = false;
             }
 
-            TxtStatus.Text = $"スキャン完了: {colorMat.Width}x{colorMat.Height} px ({dpi} DPI)";
+            TxtStatus.Text = $"透過原稿スキャン完了: {colorMat.Width}x{colorMat.Height} px ({dpi} DPI, 透過光TPU)";
             UpdateFrameSummary();
         }
 

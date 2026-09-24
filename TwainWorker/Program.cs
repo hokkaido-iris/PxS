@@ -6,6 +6,7 @@ using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Windows.Forms;
+using System.Runtime.InteropServices;
 using NTwain;
 using NTwain.Data;
 
@@ -206,14 +207,8 @@ namespace IrisPxS.TwainWorker
                             Console.WriteLine("[TwainWorker] DataTransferred event received.");
                             if (e.NativeData != IntPtr.Zero)
                             {
-                                using var stream = e.GetNativeImageStream();
-                                if (stream != null)
-                                {
-                                    using var bmp = new Bitmap(stream);
-                                    bmp.Save(_outputPath, ImageFormat.Bmp);
-                                    _scanSuccess = true;
-                                    Console.WriteLine($"[TwainWorker] Saved native image to {_outputPath} ({bmp.Width}x{bmp.Height})");
-                                }
+                                SaveDibToFile(e.NativeData, _outputPath);
+                                _scanSuccess = true;
                             }
                             else if (!string.IsNullOrEmpty(e.FileDataPath) && File.Exists(e.FileDataPath))
                             {
@@ -270,30 +265,10 @@ namespace IrisPxS.TwainWorker
                         return;
                     }
 
-                    // 設定
+                    // 設定 (透過原稿ユニット設定を最優先)
                     try
                     {
-                        // 1. カラー (RGB)
-                        if (source.Capabilities.ICapPixelType.CanSet)
-                        {
-                            var r = source.Capabilities.ICapPixelType.SetValue(PixelType.RGB);
-                            Console.WriteLine($"[TwainWorker] Set PixelType.RGB: {r}");
-                        }
-
-                        // 2. 解像度 (DPI)
-                        if (source.Capabilities.ICapXResolution.CanSet)
-                        {
-                            var r = source.Capabilities.ICapXResolution.SetValue(new TWFix32 { Whole = (short)_dpi, Fraction = 0 });
-                            Console.WriteLine($"[TwainWorker] Set XResolution {_dpi}: {r}");
-                        }
-                        if (source.Capabilities.ICapYResolution.CanSet)
-                        {
-                            var r = source.Capabilities.ICapYResolution.SetValue(new TWFix32 { Whole = (short)_dpi, Fraction = 0 });
-                            Console.WriteLine($"[TwainWorker] Set YResolution {_dpi}: {r}");
-                        }
-
-                        // 3. 透過原稿ユニット (TPU / フィルムモード)
-                        // ICAP_LIGHTPATH: Reflective = 反射原稿台, Transmissive = 透過原稿(蓋側ランプ)
+                        // 1. 透過原稿ユニット (TPU / フィルムモード: 蓋側ランプ点灯)
                         Console.WriteLine($"[TwainWorker] LightPath CanGet={source.Capabilities.ICapLightPath.CanGet}, CanSet={source.Capabilities.ICapLightPath.CanSet}");
                         if (source.Capabilities.ICapLightPath.CanGet)
                         {
@@ -305,6 +280,25 @@ namespace IrisPxS.TwainWorker
                             var targetPath = _useTpu ? LightPath.Transmissive : LightPath.Reflective;
                             var r = source.Capabilities.ICapLightPath.SetValue(targetPath);
                             Console.WriteLine($"[TwainWorker] Set ICapLightPath to {targetPath}: {r}");
+                        }
+
+                        // 2. カラー (RGB)
+                        if (source.Capabilities.ICapPixelType.CanSet)
+                        {
+                            var r = source.Capabilities.ICapPixelType.SetValue(PixelType.RGB);
+                            Console.WriteLine($"[TwainWorker] Set PixelType.RGB: {r}");
+                        }
+
+                        // 3. 解像度 (DPI)
+                        if (source.Capabilities.ICapXResolution.CanSet)
+                        {
+                            var r = source.Capabilities.ICapXResolution.SetValue(new TWFix32 { Whole = (short)_dpi, Fraction = 0 });
+                            Console.WriteLine($"[TwainWorker] Set XResolution {_dpi}: {r}");
+                        }
+                        if (source.Capabilities.ICapYResolution.CanSet)
+                        {
+                            var r = source.Capabilities.ICapYResolution.SetValue(new TWFix32 { Whole = (short)_dpi, Fraction = 0 });
+                            Console.WriteLine($"[TwainWorker] Set YResolution {_dpi}: {r}");
                         }
                     }
                     catch (Exception ex)
@@ -349,6 +343,110 @@ namespace IrisPxS.TwainWorker
                 }
                 catch { }
                 base.OnFormClosing(e);
+            }
+
+            [DllImport("kernel32.dll", ExactSpelling = true)]
+            private static extern IntPtr GlobalLock(IntPtr handle);
+
+            [DllImport("kernel32.dll", ExactSpelling = true)]
+            private static extern bool GlobalUnlock(IntPtr handle);
+
+            [DllImport("kernel32.dll", ExactSpelling = true)]
+            private static extern UIntPtr GlobalSize(IntPtr handle);
+
+            private static void SaveDibToFile(IntPtr hGlobal, string outputPath)
+            {
+                if (hGlobal == IntPtr.Zero)
+                {
+                    throw new ArgumentException("hGlobal is null");
+                }
+
+                IntPtr ptr = GlobalLock(hGlobal);
+                if (ptr == IntPtr.Zero)
+                {
+                    throw new InvalidOperationException("Failed to lock HGLOBAL data.");
+                }
+
+                try
+                {
+                    // Read BITMAPINFOHEADER (at least 40 bytes)
+                    uint biSize = (uint)Marshal.ReadInt32(ptr, 0);
+                    if (biSize < 40)
+                    {
+                        throw new InvalidOperationException($"Invalid DIB header size: {biSize}");
+                    }
+
+                    int biWidth = Marshal.ReadInt32(ptr, 4);
+                    int biHeight = Marshal.ReadInt32(ptr, 8);
+                    ushort biPlanes = (ushort)Marshal.ReadInt16(ptr, 12);
+                    ushort biBitCount = (ushort)Marshal.ReadInt16(ptr, 14);
+                    uint biCompression = (uint)Marshal.ReadInt32(ptr, 16);
+                    uint biSizeImage = (uint)Marshal.ReadInt32(ptr, 20);
+                    uint biClrUsed = (uint)Marshal.ReadInt32(ptr, 32);
+
+                    int colorCount = 0;
+                    if (biClrUsed > 0)
+                    {
+                        colorCount = (int)biClrUsed;
+                    }
+                    else if (biBitCount <= 8)
+                    {
+                        colorCount = 1 << biBitCount;
+                    }
+                    int colorTableSize = colorCount * 4;
+
+                    // If BI_BITFIELDS (compression == 3) and biSize == 40, there are 3 DWORD masks (12 bytes)
+                    if (biCompression == 3 && biSize == 40)
+                    {
+                        colorTableSize = 12;
+                    }
+
+                    int stride = ((biWidth * biBitCount + 31) / 32) * 4;
+                    if (biSizeImage == 0)
+                    {
+                        biSizeImage = (uint)(stride * Math.Abs(biHeight));
+                    }
+
+                    ulong dibTotalBytes = GlobalSize(hGlobal).ToUInt64();
+                    ulong calculatedBytes = biSize + (ulong)colorTableSize + biSizeImage;
+                    if (dibTotalBytes == 0 || dibTotalBytes < calculatedBytes)
+                    {
+                        dibTotalBytes = calculatedBytes;
+                    }
+
+                    uint bfOffBits = 14 + biSize + (uint)colorTableSize;
+                    uint bfSize = (uint)(14 + dibTotalBytes);
+
+                    using (var fs = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.None, 65536))
+                    using (var bw = new BinaryWriter(fs))
+                    {
+                        // 14-byte BITMAPFILEHEADER
+                        bw.Write((ushort)0x4D42);  // 'BM'
+                        bw.Write(bfSize);          // bfSize
+                        bw.Write((ushort)0);       // bfReserved1
+                        bw.Write((ushort)0);       // bfReserved2
+                        bw.Write(bfOffBits);       // bfOffBits
+
+                        // Stream the DIB data in 64KB chunks directly from unmanaged memory
+                        byte[] chunk = new byte[65536];
+                        long remaining = (long)dibTotalBytes;
+                        long offset = 0;
+                        while (remaining > 0)
+                        {
+                            int toRead = (int)Math.Min(chunk.Length, remaining);
+                            Marshal.Copy(new IntPtr(ptr.ToInt64() + offset), chunk, 0, toRead);
+                            fs.Write(chunk, 0, toRead);
+                            offset += toRead;
+                            remaining -= toRead;
+                        }
+                    }
+
+                    Console.WriteLine($"[TwainWorker] Successfully streamed DIB ({biWidth}x{biHeight}, {biBitCount}bpp, {dibTotalBytes} bytes) to {outputPath}");
+                }
+                finally
+                {
+                    GlobalUnlock(hGlobal);
+                }
             }
         }
     }
