@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="iris-pxs.csproj" />
+  <Project Path="TwainWorker/TwainWorker.csproj" />
+</Solution>
