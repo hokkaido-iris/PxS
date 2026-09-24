@@ -76,6 +76,9 @@ namespace IrisPxS.Controls
         public event EventHandler<(byte R, byte G, byte B)>? ColorPicked;
         public event EventHandler<FilmFrame>? FrameSelected;
         public event EventHandler? FrameModified;
+        public event EventHandler<double>? ZoomChanged;
+
+        public double ZoomScale => _scale;
 
         private double _scale = 1.0;
         private Point _panOffset = new Point(0, 0);
@@ -116,6 +119,7 @@ namespace IrisPxS.Controls
             _panOffset = new Point((ActualWidth - renderedW) / 2, (ActualHeight - renderedH) / 2);
 
             InvalidateVisual();
+            ZoomChanged?.Invoke(this, _scale);
         }
 
         protected override void OnRenderSizeChanged(SizeChangedInfo sizeInfo)
@@ -400,6 +404,7 @@ namespace IrisPxS.Controls
             _scale = newScale;
 
             InvalidateVisual();
+            ZoomChanged?.Invoke(this, _scale);
         }
 
         private bool IsPointInsideFrame(Point screenPos, FilmFrame frame)
@@ -644,6 +649,49 @@ namespace IrisPxS.Controls
             }
 
             SelectedFrame.CropRect = new OpenCvSharp.Rect(x, y, w, h);
+            InvalidateVisual();
+            FrameModified?.Invoke(this, EventArgs.Empty);
+        }
+
+        public void ZoomIn()
+        {
+            ApplyZoom(1.25, new Point(ActualWidth / 2, ActualHeight / 2));
+        }
+
+        public void ZoomOut()
+        {
+            ApplyZoom(1.0 / 1.25, new Point(ActualWidth / 2, ActualHeight / 2));
+        }
+
+        public void ZoomActualSize()
+        {
+            if (ImageSource == null || ActualWidth <= 0 || ActualHeight <= 0) return;
+            _scale = 1.0;
+            _panOffset = new Point((ActualWidth - ImageSource.PixelWidth) / 2, (ActualHeight - ImageSource.PixelHeight) / 2);
+            InvalidateVisual();
+            ZoomChanged?.Invoke(this, _scale);
+        }
+
+        private void ApplyZoom(double factor, Point center)
+        {
+            if (ImageSource == null || ActualWidth <= 0 || ActualHeight <= 0) return;
+            double newScale = Math.Clamp(_scale * factor, 0.05, 10.0);
+            _panOffset.X = center.X - (center.X - _panOffset.X) * (newScale / _scale);
+            _panOffset.Y = center.Y - (center.Y - _panOffset.Y) * (newScale / _scale);
+            _scale = newScale;
+            InvalidateVisual();
+            ZoomChanged?.Invoke(this, _scale);
+        }
+
+        /// <summary>
+        /// 選択中のコマ枠をフィルム幅・画像中央へセンタリング
+        /// </summary>
+        public void CenterSelectedFrame()
+        {
+            if (SelectedFrame == null || ImageSource == null) return;
+            var r = SelectedFrame.CropRect;
+            int newX = Math.Max(0, (ImageSource.PixelWidth - r.Width) / 2);
+            SelectedFrame.CropRect = new OpenCvSharp.Rect(newX, r.Y, r.Width, r.Height);
             InvalidateVisual();
             FrameModified?.Invoke(this, EventArgs.Empty);
         }

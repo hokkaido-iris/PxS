@@ -53,12 +53,25 @@ namespace IrisPxS
             {
                 Console.WriteLine("\n[実機スキャン画像検証 (real_scan.bmp)]...");
                 using var realMat = Cv2.ImRead(realScanPath);
-                var (realStraight, realSkew, realFrames) = detectorService.DetectAndStraighten(realMat, format, 300);
-                Console.WriteLine($"実フィルム検知傾き角: {realSkew:F2}°, 検出コマ数: {realFrames.Count}");
-                for (int i = 0; i < realFrames.Count; i++)
+                Console.WriteLine($"real_scan.bmp サイズ: 幅={realMat.Width}, 高さ={realMat.Height}, Channels={realMat.Channels()}");
+
+                // 1. 135 Full-Frame 自動認識テスト (等間隔ベースグリッド ＋ 局所エッジ・プロファイル自動微調整)
+                var (straight135, skew135, frames135) = detectorService.DetectAndStraighten(realMat, format, 300);
+                Console.WriteLine($"\n[135-FF] 検知傾き角: {skew135:F2}°, 検出コマ数: {frames135.Count}");
+                for (int i = 0; i < frames135.Count; i++)
                 {
-                    var r = realFrames[i];
-                    Console.WriteLine($"  実コマ #{i + 1}: X={r.X}, Y={r.Y}, W={r.Width}, H={r.Height}");
+                    var r = frames135[i];
+                    Console.WriteLine($"  135微調整コマ #{i + 1}: X={r.X}, Y={r.Y}, W={r.Width}, H={r.Height} (Y範囲: {r.Y}〜{r.Y + r.Height}, Aspect={(double)r.Height / r.Width:F2})");
+                }
+
+                // 2. 110 General 自動認識テスト
+                var format110 = FilmFormat.GetAllFormats().First(f => f.Type == FilmFormatType.Format110_General);
+                var (straight110, skew110, frames110) = detectorService.DetectAndStraighten(realMat, format110, 300);
+                Console.WriteLine($"\n[110-General] 検知傾き角: {skew110:F2}°, 検出コマ数: {frames110.Count}");
+                for (int i = 0; i < frames110.Count; i++)
+                {
+                    var r = frames110[i];
+                    Console.WriteLine($"  110コマ #{i + 1}: X={r.X}, Y={r.Y}, W={r.Width}, H={r.Height} (Y範囲: {r.Y}〜{r.Y + r.Height})");
                 }
             }
 
@@ -68,10 +81,11 @@ namespace IrisPxS
             {
                 using var rotMat = Cv2.GetRotationMatrix2D(new Point2f(colorMat.Width / 2f, colorMat.Height / 2f), -testAng, 1.0);
                 using var tiltedColor = new Mat();
-                Cv2.WarpAffine(colorMat, tiltedColor, rotMat, colorMat.Size(), InterpolationFlags.Linear, BorderTypes.Constant, new Scalar(250, 250, 250)); // 周囲は素抜けガラス（メディアなし白色）
-                double detectedTiltedAngle = detectorService.DetectFilmSkewAngleFromMediaBoundary(tiltedColor);
+                Cv2.WarpAffine(colorMat, tiltedColor, rotMat, colorMat.Size(), InterpolationFlags.Linear, BorderTypes.Constant, new Scalar(250, 250, 250));
+                
+                double detectedHoughAngle = detectorService.DetectFilmSkewAngleFromMediaBoundary(tiltedColor);
                 double expectedAngle = skewAngle - testAng;
-                Console.WriteLine($"意図的付加傾き ({testAng:+0.00;-0.00}°): 期待値 {expectedAngle:+0.00;-0.00}° に対し検知 {detectedTiltedAngle:+0.00;-0.00}° (残差: {Math.Abs(detectedTiltedAngle - expectedAngle):F2}°)");
+                Console.WriteLine($"[傾き検知] 意図的付加傾き ({testAng:+0.00;-0.00}°): 期待値 {expectedAngle:+0.00;-0.00}° に対し検知 {detectedHoughAngle:+0.00;-0.00}° (残差: {Math.Abs(detectedHoughAngle - expectedAngle):F2}°)");
             }
 
             // 4. ベースカラー自動検知 & NP変換テスト
@@ -100,6 +114,11 @@ namespace IrisPxS
             using var frameRoi = colorMat[frame.CropRect];
             using var positiveMat = negativeEngine.ConvertNegativeToPositive(frameRoi, frame);
             Console.WriteLine($"NP変換完了: サイズ {positiveMat.Width}x{positiveMat.Height}");
+
+            // 4.5 自動トーン補正 (Auto Tone) テスト
+            Console.WriteLine("\n[4.5/6] 自動トーン補正 (Auto Tone) アルゴリズムテスト...");
+            var autoTone = negativeEngine.CalculateAutoTone(colorMat, frame);
+            Console.WriteLine($"自動トーン補正結果: EV={autoTone.Exposure:+0.00;-0.00}, Contrast={autoTone.Contrast:F2}, Saturation={autoTone.Saturation:F2}, Temp={autoTone.ColorTemp:+0.0;-0.0}, Tint={autoTone.Tint:+0.0;-0.0}");
 
             // 5. 赤外線ゴミ・キズ除去 (Digital ICE) テスト
             Console.WriteLine("\n[5/6] 赤外線ゴミ・キズ除去テスト...");

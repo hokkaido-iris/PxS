@@ -108,6 +108,129 @@ namespace IrisPxS.Services
         }
 
         /// <summary>
+        /// コマ画像から最適な露出補正・コントラスト・ホワイトバランス（色温度/色合い）を自動解析・算出する
+        /// </summary>
+        public (double Exposure, double Contrast, double Saturation, double ColorTemp, double Tint) CalculateAutoTone(Mat rawMat, FilmFrame settings)
+        {
+            if (rawMat == null || rawMat.Empty()) return (0.0, 1.0, 1.0, 0.0, 0.0);
+
+            // 中央70%の有効写真領域をサンプリング（外枠の露光枠や黒フチの影響を排除）
+            int sx = (int)(rawMat.Width * 0.15);
+            int sy = (int)(rawMat.Height * 0.15);
+            int sw = Math.Max(20, (int)(rawMat.Width * 0.70));
+            int sh = Math.Max(20, (int)(rawMat.Height * 0.70));
+
+            using var roi = new Mat(rawMat, new OpenCvSharp.Rect(sx, sy, sw, sh));
+            using var sample = new Mat();
+            int targetDim = 250;
+            int smW = Math.Max(10, Math.Min(targetDim, (int)(targetDim * (double)sw / Math.Max(sw, sh))));
+            int smH = Math.Max(10, Math.Min(targetDim, (int)(targetDim * (double)sh / Math.Max(sw, sh))));
+            Cv2.Resize(roi, sample, new OpenCvSharp.Size(smW, smH), 0, 0, InterpolationFlags.Area);
+
+            // ニュートラル設定で一度ポジ化
+            var neutralSettings = new FilmFrame
+            {
+                IsColor = settings.IsColor,
+                IsNegative = settings.IsNegative,
+                BaseColorR = settings.BaseColorR,
+                BaseColorG = settings.BaseColorG,
+                BaseColorB = settings.BaseColorB,
+                Exposure = 0.0,
+                Contrast = 1.0,
+                Saturation = 1.0,
+                ColorTemp = 0.0,
+                Tint = 0.0
+            };
+
+            using var posMat = ConvertNegativeToPositive(sample, neutralSettings);
+            if (posMat.Empty()) return (0.0, 1.0, 1.0, 0.0, 0.0);
+
+            // 1. 輝度分布の解析
+            using var gray = new Mat();
+            if (posMat.Channels() > 1)
+            {
+                Cv2.CvtColor(posMat, gray, ColorConversionCodes.BGR2GRAY);
+            }
+            else
+            {
+                posMat.CopyTo(gray);
+            }
+
+            int numRows = gray.Rows;
+            int numCols = gray.Cols;
+            int totalPixels = numRows * numCols;
+            int[] hist = new int[256];
+            for (int r = 0; r < numRows; r++)
+            {
+                for (int c = 0; c < numCols; c++)
+                {
+                    hist[gray.At<byte>(r, c)]++;
+                }
+            }
+
+            int cum = 0;
+            int p05 = 0, p50 = 128, p95 = 255;
+            for (int i = 0; i < 256; i++)
+            {
+                cum += hist[i];
+                if (cum >= totalPixels * 0.05 && p05 == 0) p05 = i;
+                if (cum >= totalPixels * 0.50 && p50 == 128) p50 = i;
+                if (cum >= totalPixels * 0.95 && p95 == 255) p95 = i;
+            }
+
+            // 2. 最適露出 (EV) の算出
+            double targetMedian = 120.0;
+            double currentMedian = Math.Clamp(p50, 10, 245);
+            double autoExposure = Math.Log2(targetMedian / currentMedian);
+            autoExposure = Math.Clamp(Math.Round(autoExposure * 2.0) / 2.0, -1.5, 1.5);
+
+            // 3. 最適コントラストの算出
+            int range = p95 - p05;
+            double autoContrast = 1.0;
+            if (range < 120)
+            {
+                autoContrast = Math.Clamp(1.0 + (120 - range) / 200.0, 1.05, 1.35);
+            }
+            else if (range > 220)
+            {
+                autoContrast = 0.95;
+            }
+            autoContrast = Math.Round(autoContrast, 2);
+
+            // 4. ホワイトバランス（色温度・色合い）の算出
+            double autoTemp = 0.0;
+            double autoTint = 0.0;
+
+            if (posMat.Channels() >= 3 && settings.IsColor)
+            {
+                var chs = Cv2.Split(posMat);
+                double bMean = chs[0].Mean().Val0;
+                double gMean = chs[1].Mean().Val0;
+                double rMean = chs[2].Mean().Val0;
+                foreach (var c in chs) c.Dispose();
+
+                double avg = (rMean + gMean + bMean) / 3.0;
+                if (avg > 10)
+                {
+                    double rbDiff = (rMean - bMean) / avg;
+                    autoTemp = Math.Clamp(-rbDiff * 45.0, -30.0, 30.0);
+
+                    double rbAvg = (rMean + bMean) / 2.0;
+                    double gDiff = (gMean - rbAvg) / avg;
+                    autoTint = Math.Clamp(-gDiff * 45.0, -25.0, 25.0);
+                }
+            }
+
+            return (
+                Math.Round(autoExposure, 1),
+                Math.Round(autoContrast, 2),
+                1.0,
+                Math.Round(autoTemp, 0),
+                Math.Round(autoTint, 0)
+            );
+        }
+
+        /// <summary>
         /// 生スキャン画像をポジ・補正画像に変換（Color/B&W, Negative/Positive 対応）
         /// プロファイル機能を排し、ピュアな物理ベース反転と精密トーンコントロールを行います
         /// </summary>

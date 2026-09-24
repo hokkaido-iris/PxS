@@ -68,6 +68,14 @@ namespace IrisPxS
                 TxtStatus.Text = $"スポイト取得ベース色: R={rgb.R}, G={rgb.G}, B={rgb.B}";
             };
 
+            ScanCanvas.ZoomChanged += (s, scale) =>
+            {
+                if (TxtZoomLevel != null)
+                {
+                    TxtZoomLevel.Text = $"{(int)Math.Round(scale * 100)}%";
+                }
+            };
+
             Loaded += MainWindow_Loaded;
         }
 
@@ -553,29 +561,36 @@ namespace IrisPxS
             }
         }
 
-        private void BtnPrevFrame_Click(object sender, RoutedEventArgs e)
+        private void NavigateFrameRelative(int delta)
         {
-            if (_selectedFrame == null || _currentRoll.AllFrames.Count == 0) return;
-            int idx = _currentRoll.AllFrames.IndexOf(_selectedFrame);
-            if (idx > 0)
+            if (_currentRoll.AllFrames.Count == 0) return;
+            if (_selectedFrame == null)
             {
-                SelectFrame(_currentRoll.AllFrames[idx - 1]);
+                SelectFrame(_currentRoll.AllFrames[0]);
+                return;
+            }
+
+            int idx = _currentRoll.AllFrames.IndexOf(_selectedFrame);
+            int newIdx = Math.Clamp(idx + delta, 0, _currentRoll.AllFrames.Count - 1);
+            if (newIdx != idx)
+            {
+                SelectFrame(_currentRoll.AllFrames[newIdx]);
+                LstFilmStrip.ScrollIntoView(_currentRoll.AllFrames[newIdx]);
             }
         }
 
-        private void BtnNextFrame_Click(object sender, RoutedEventArgs e)
-        {
-            if (_selectedFrame == null || _currentRoll.AllFrames.Count == 0) return;
-            int idx = _currentRoll.AllFrames.IndexOf(_selectedFrame);
-            if (idx < _currentRoll.AllFrames.Count - 1)
-            {
-                SelectFrame(_currentRoll.AllFrames[idx + 1]);
-            }
-        }
+        private void BtnPrevFrame_Click(object sender, RoutedEventArgs e) => NavigateFrameRelative(-1);
+        private void BtnNextFrame_Click(object sender, RoutedEventArgs e) => NavigateFrameRelative(1);
 
-        private void BtnZoomFit_Click(object sender, RoutedEventArgs e)
+        private void BtnZoomIn_Click(object sender, RoutedEventArgs e) => ScanCanvas.ZoomIn();
+        private void BtnZoomOut_Click(object sender, RoutedEventArgs e) => ScanCanvas.ZoomOut();
+        private void BtnZoom100_Click(object sender, RoutedEventArgs e) => ScanCanvas.ZoomActualSize();
+        private void BtnZoomFit_Click(object sender, RoutedEventArgs e) => ScanCanvas.ResetView();
+
+        private void BtnBackToFullView_Click(object sender, RoutedEventArgs e)
         {
-            ScanCanvas.ResetView();
+            RbViewFull.IsChecked = true;
+            ViewMode_Changed(sender, e);
         }
 
         private void BtnRotateFrame_Click(object sender, RoutedEventArgs e)
@@ -587,6 +602,137 @@ namespace IrisPxS
                 if (RbViewSingle.IsChecked == true)
                 {
                     UpdateSingleFramePreview();
+                }
+            }
+        }
+
+        private void BtnShortcutsHelp_Click(object sender, RoutedEventArgs e)
+        {
+            string helpText =
+                "【IRIS PxS キーボードショートカット一覧】\n\n" +
+                "◆ コマ移動・選択\n" +
+                "  ・ PageUp / [ : 前のコマを選択\n" +
+                "  ・ PageDown / ] : 次のコマを選択\n" +
+                "  ・ ↑ / ↓ キー : 全コマを一括ナッジ微調整 (Shift併用で10px移動)\n\n" +
+                "◆ 表示・拡大縮小\n" +
+                "  ・ + / - : 表示拡大 / 縮小\n" +
+                "  ・ 0 (ゼロ) : 等倍表示 (100%)\n" +
+                "  ・ F キー : 画面全体に合わせる (Fit)\n" +
+                "  ・ マウスホイール : 拡大縮小 (カーソル位置中心)\n\n" +
+                "◆ ビュー切替\n" +
+                "  ・ Ctrl + 1 : スキャン全体ビュー\n" +
+                "  ・ Ctrl + 2 : コマ個別確認ビュー\n" +
+                "  ・ Ctrl + 3 : 全コマメタデータ設定表\n" +
+                "  ・ Ctrl + 4 : ICE 赤外線ゴミ・キズ差分マップ\n\n" +
+                "◆ 編集・書き出し\n" +
+                "  ・ R キー : コマを90度右回転\n" +
+                "  ・ Ctrl + T : 自動トーン補正 (露出/コントラスト/WB最適化)\n" +
+                "  ・ Delete : 選択中のコマ枠を削除\n" +
+                "  ・ Ctrl + E : フォルダへ一括書き出し\n" +
+                "  ・ フィルムストリップ ダブルクリック : 個別ビューで拡大確認";
+
+            MessageBox.Show(helpText, "キーボードショートカット早見表", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.OriginalSource is TextBox)
+            {
+                if (e.Key == Key.Escape)
+                {
+                    Keyboard.ClearFocus();
+                    e.Handled = true;
+                }
+                return;
+            }
+
+            if (Keyboard.Modifiers == ModifierKeys.Control)
+            {
+                switch (e.Key)
+                {
+                    case Key.T:
+                        BtnAutoTone_Click(sender, e);
+                        e.Handled = true;
+                        break;
+                    case Key.E:
+                        BtnExportFolder_Click(sender, e);
+                        e.Handled = true;
+                        break;
+                    case Key.D1:
+                        RbViewFull.IsChecked = true;
+                        ViewMode_Changed(sender, e);
+                        e.Handled = true;
+                        break;
+                    case Key.D2:
+                        RbViewSingle.IsChecked = true;
+                        ViewMode_Changed(sender, e);
+                        e.Handled = true;
+                        break;
+                    case Key.D3:
+                        RbViewTable.IsChecked = true;
+                        ViewMode_Changed(sender, e);
+                        e.Handled = true;
+                        break;
+                    case Key.D4:
+                        RbViewIce.IsChecked = true;
+                        ViewMode_Changed(sender, e);
+                        e.Handled = true;
+                        break;
+                }
+            }
+            else
+            {
+                switch (e.Key)
+                {
+                    case Key.PageUp:
+                    case Key.OemOpenBrackets:
+                        NavigateFrameRelative(-1);
+                        e.Handled = true;
+                        break;
+                    case Key.PageDown:
+                    case Key.OemCloseBrackets:
+                        NavigateFrameRelative(1);
+                        e.Handled = true;
+                        break;
+                    case Key.Up:
+                        NudgeFrames(isForward: false);
+                        e.Handled = true;
+                        break;
+                    case Key.Down:
+                        NudgeFrames(isForward: true);
+                        e.Handled = true;
+                        break;
+                    case Key.R:
+                        BtnRotateFrame_Click(sender, e);
+                        e.Handled = true;
+                        break;
+                    case Key.F:
+                        BtnZoomFit_Click(sender, e);
+                        e.Handled = true;
+                        break;
+                    case Key.Delete:
+                        BtnDeleteFrame_Click(sender, e);
+                        e.Handled = true;
+                        break;
+                    case Key.F1:
+                        BtnShortcutsHelp_Click(sender, e);
+                        e.Handled = true;
+                        break;
+                    case Key.Add:
+                    case Key.OemPlus:
+                        ScanCanvas.ZoomIn();
+                        e.Handled = true;
+                        break;
+                    case Key.Subtract:
+                    case Key.OemMinus:
+                        ScanCanvas.ZoomOut();
+                        e.Handled = true;
+                        break;
+                    case Key.D0:
+                    case Key.NumPad0:
+                        ScanCanvas.ZoomActualSize();
+                        e.Handled = true;
+                        break;
                 }
             }
         }
@@ -688,10 +834,27 @@ namespace IrisPxS
 
         private void CmbFilmBrand_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (CmbFilmBrand.SelectedItem is string brand)
-            {
-                _currentRoll.FilmStock = brand;
-            }
+            string? brand = CmbFilmBrand.SelectedItem as string ?? CmbFilmBrand.Text;
+            if (string.IsNullOrWhiteSpace(brand)) return;
+            _currentRoll.FilmStock = brand;
+
+            // 銘柄プリセットからモノクロ/カラー及びISOを自動判定して反映
+            bool isBw = brand.Contains("Tri-X", StringComparison.OrdinalIgnoreCase) ||
+                        brand.Contains("Acros", StringComparison.OrdinalIgnoreCase) ||
+                        brand.Contains("HP5", StringComparison.OrdinalIgnoreCase) ||
+                        brand.Contains("T-Max", StringComparison.OrdinalIgnoreCase) ||
+                        brand.Contains("Delta", StringComparison.OrdinalIgnoreCase);
+
+            RbBw.IsChecked = isBw;
+            RbColor.IsChecked = !isBw;
+
+            if (brand.Contains("100")) CmbRollIso.Text = "100";
+            else if (brand.Contains("160")) CmbRollIso.Text = "160";
+            else if (brand.Contains("200")) CmbRollIso.Text = "200";
+            else if (brand.Contains("400")) CmbRollIso.Text = "400";
+            else if (brand.Contains("800")) CmbRollIso.Text = "800";
+
+            FilmType_Changed(sender, e);
         }
 
         private void CmbRollIso_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -975,6 +1138,16 @@ namespace IrisPxS
             if (RbViewSingle?.IsChecked == true) UpdateSingleFramePreview();
         }
 
+        private void BtnFrameCenter_Click(object sender, RoutedEventArgs e)
+        {
+            if (_selectedFrame == null) return;
+            ScanCanvas.CenterSelectedFrame();
+            UpdateFrameThumbnail(_selectedFrame);
+            SyncFrameControlPanelInputs();
+            if (RbViewSingle?.IsChecked == true) UpdateSingleFramePreview();
+            TxtStatus.Text = $"コマ #{_selectedFrame.FrameNumber} を中央に配置しました。";
+        }
+
         private void TxtFrameCoord_KeyDown(object sender, KeyEventArgs e)
         {
             if (e.Key == Key.Enter)
@@ -1144,6 +1317,119 @@ namespace IrisPxS
             if (RbViewSingle.IsChecked == true) UpdateSingleFramePreview();
         }
 
+        private void BtnAutoTone_Click(object sender, RoutedEventArgs e)
+        {
+            if (_selectedFrame == null || _currentScanMat == null || _currentScanMat.IsDisposed)
+            {
+                MessageBox.Show("コマ枠を選択してください。", "情報", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var (exposure, contrast, saturation, colorTemp, tint) = _negativeEngine.CalculateAutoTone(_currentScanMat, _selectedFrame);
+
+            _isUpdatingUi = true;
+            try
+            {
+                SldExposure.Value = exposure;
+                SldContrast.Value = contrast;
+                SldSaturation.Value = saturation;
+                SldColorTemp.Value = colorTemp;
+                SldTint.Value = tint;
+
+                TxtExposureVal.Text = exposure.ToString("F1");
+                TxtContrastVal.Text = contrast.ToString("F2");
+                TxtSaturationVal.Text = saturation.ToString("F2");
+                TxtColorTempVal.Text = colorTemp.ToString("F0");
+                TxtTintVal.Text = tint.ToString("F0");
+
+                _selectedFrame.Exposure = exposure;
+                _selectedFrame.Contrast = contrast;
+                _selectedFrame.Saturation = saturation;
+                _selectedFrame.ColorTemp = colorTemp;
+                _selectedFrame.Tint = tint;
+
+                UpdateFrameThumbnail(_selectedFrame);
+                if (RbViewSingle.IsChecked == true) UpdateSingleFramePreview();
+
+                TxtStatus.Text = $"コマ #{_selectedFrame.FrameNumber} のトーンを自動最適化しました (EV:{exposure:F1}, コントラスト:{contrast:F2}, 色温度:{colorTemp:F0})";
+            }
+            finally
+            {
+                _isUpdatingUi = false;
+            }
+        }
+
+        private void BtnApplyToneToAll_Click(object sender, RoutedEventArgs e)
+        {
+            if (_selectedFrame == null || _currentRoll.AllFrames.Count == 0)
+            {
+                MessageBox.Show("コピー元のコマを選択してください。", "情報", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var res = MessageBox.Show(
+                $"コマ #{_selectedFrame.FrameNumber} のトーン設定（露出: {_selectedFrame.Exposure:F1}, コントラスト: {_selectedFrame.Contrast:F2}, 彩度: {_selectedFrame.Saturation:F2}, 色温度: {_selectedFrame.ColorTemp:F0}, 色合い: {_selectedFrame.Tint:F0}, ベース色）を全コマにコピーしますか？",
+                "トーン設定の一括適用", MessageBoxButton.YesNo, MessageBoxImage.Question);
+
+            if (res == MessageBoxResult.Yes)
+            {
+                foreach (var f in _currentRoll.AllFrames)
+                {
+                    f.Exposure = _selectedFrame.Exposure;
+                    f.Contrast = _selectedFrame.Contrast;
+                    f.Saturation = _selectedFrame.Saturation;
+                    f.ColorTemp = _selectedFrame.ColorTemp;
+                    f.Tint = _selectedFrame.Tint;
+                    f.BaseColorR = _selectedFrame.BaseColorR;
+                    f.BaseColorG = _selectedFrame.BaseColorG;
+                    f.BaseColorB = _selectedFrame.BaseColorB;
+                    UpdateFrameThumbnail(f);
+                }
+
+                if (RbViewSingle.IsChecked == true) UpdateSingleFramePreview();
+                TxtStatus.Text = "全コマにトーン設定を一括コピーしました。";
+            }
+        }
+
+        private void BtnPresetNeutral_Click(object sender, RoutedEventArgs e) => ApplyTonePreset(0.0, 1.0, 1.0, 0.0, 0.0, "標準 / Neutral");
+        private void BtnPresetVivid_Click(object sender, RoutedEventArgs e) => ApplyTonePreset(0.1, 1.15, 1.25, 2.0, 0.0, "鮮やか / Vivid");
+        private void BtnPresetCinema_Click(object sender, RoutedEventArgs e) => ApplyTonePreset(-0.1, 1.2, 0.9, -4.0, 4.0, "シネマ / Cinema");
+        private void BtnPresetHighKey_Click(object sender, RoutedEventArgs e) => ApplyTonePreset(0.4, 0.95, 1.05, 3.0, 2.0, "ハイキー / HighKey");
+
+        private void ApplyTonePreset(double exp, double con, double sat, double temp, double tint, string presetName)
+        {
+            if (_selectedFrame == null) return;
+            _isUpdatingUi = true;
+            try
+            {
+                SldExposure.Value = exp;
+                SldContrast.Value = con;
+                SldSaturation.Value = sat;
+                SldColorTemp.Value = temp;
+                SldTint.Value = tint;
+
+                TxtExposureVal.Text = exp.ToString("F1");
+                TxtContrastVal.Text = con.ToString("F2");
+                TxtSaturationVal.Text = sat.ToString("F2");
+                TxtColorTempVal.Text = temp.ToString("F0");
+                TxtTintVal.Text = tint.ToString("F0");
+
+                _selectedFrame.Exposure = exp;
+                _selectedFrame.Contrast = con;
+                _selectedFrame.Saturation = sat;
+                _selectedFrame.ColorTemp = temp;
+                _selectedFrame.Tint = tint;
+
+                UpdateFrameThumbnail(_selectedFrame);
+                if (RbViewSingle.IsChecked == true) UpdateSingleFramePreview();
+                TxtStatus.Text = $"プリセット「{presetName}」を適用しました。";
+            }
+            finally
+            {
+                _isUpdatingUi = false;
+            }
+        }
+
         private void BtnResetColor_Click(object sender, RoutedEventArgs e)
         {
             _isUpdatingUi = true;
@@ -1228,6 +1514,31 @@ namespace IrisPxS
             if (LstFilmStrip.SelectedItem is FilmFrame frame && frame != _selectedFrame)
             {
                 SelectFrame(frame);
+            }
+        }
+
+        private void LstFilmStrip_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+        {
+            if (VisualTreeHelper.GetChildrenCount(LstFilmStrip) > 0)
+            {
+                var border = VisualTreeHelper.GetChild(LstFilmStrip, 0) as Decorator;
+                if (border?.Child is ScrollViewer scrollViewer)
+                {
+                    if (e.Delta < 0)
+                        scrollViewer.LineRight();
+                    else
+                        scrollViewer.LineLeft();
+                    e.Handled = true;
+                }
+            }
+        }
+
+        private void LstFilmStrip_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            if (_selectedFrame != null)
+            {
+                RbViewSingle.IsChecked = true;
+                ViewMode_Changed(sender, e);
             }
         }
 
@@ -1328,6 +1639,10 @@ namespace IrisPxS
         // エクスポート (書き出し)
         // ======================================================================
 
+        private void CmbExportFormat_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+        }
+
         private async void BtnExportFolder_Click(object sender, RoutedEventArgs e)
         {
             if (_currentRoll.AllFrames.Count == 0)
@@ -1349,9 +1664,31 @@ namespace IrisPxS
 
                 try
                 {
-                    var options = new ExportOptions { OutputDirectory = targetFolder };
+                    string format = "JPEG";
+                    if (CmbExportFormat?.SelectedItem is ComboBoxItem item)
+                    {
+                        string text = item.Content?.ToString() ?? "";
+                        if (text.Contains("TIFF", StringComparison.OrdinalIgnoreCase)) format = "TIFF";
+                        else if (text.Contains("PNG", StringComparison.OrdinalIgnoreCase)) format = "PNG";
+                    }
+
+                    var options = new ExportOptions
+                    {
+                        OutputDirectory = targetFolder,
+                        Format = format
+                    };
+
                     await _exportService.ExportToFolderAsync(_currentRoll, options, progress);
-                    MessageBox.Show($"フォルダへの一括書き出しが完了しました:\n{targetFolder}", "書き出し成功", MessageBoxButton.OK, MessageBoxImage.Information);
+                    MessageBox.Show($"フォルダへの一括書き出しが完了しました:\n{targetFolder}\n出力形式: {format}", "書き出し成功", MessageBoxButton.OK, MessageBoxImage.Information);
+
+                    if (ChkOpenFolderAfterExport?.IsChecked == true && Directory.Exists(targetFolder))
+                    {
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                        {
+                            FileName = targetFolder,
+                            UseShellExecute = true
+                        });
+                    }
                 }
                 catch (Exception ex)
                 {

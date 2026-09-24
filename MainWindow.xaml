@@ -7,6 +7,7 @@
         mc:Ignorable="d"
         Title="IRIS PxS - フィルムスキャニングシステム (Epson GT-X820)" Height="860" Width="1380"
         WindowStartupLocation="CenterScreen"
+        PreviewKeyDown="Window_PreviewKeyDown"
         Background="#F0F0F0" Foreground="#000000" FontFamily="Yu Gothic UI, Segoe UI, メイリオ" FontSize="12">
 
     <Window.Resources>
@@ -293,9 +294,22 @@
                         <!-- エクスポート -->
                         <GroupBox Header="一括書き出し (Export)">
                             <StackPanel Margin="2">
-                                <Button x:Name="BtnExportFolder" Content="フォルダへ一括書き出し..." Height="28" Margin="0,2,0,4" FontWeight="SemiBold" Click="BtnExportFolder_Click" />
-                                <Button x:Name="BtnExportZip" Content="ZIPアーカイブへ書き出し..." Height="28" Margin="0,0,0,4" Click="BtnExportZip_Click" />
-                                <Button x:Name="BtnContactSheet" Content="コンタクトシート生成..." Margin="0,0,0,2" Click="BtnContactSheet_Click" />
+                                <Grid Margin="0,2,0,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="60" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Label Content="出力形式:" Padding="0" VerticalAlignment="Center" />
+                                    <ComboBox x:Name="CmbExportFormat" Grid.Column="1" Height="24" SelectionChanged="CmbExportFormat_SelectionChanged">
+                                        <ComboBoxItem Content="JPEG (95% 高画質)" IsSelected="True" />
+                                        <ComboBoxItem Content="TIFF (16-bit 非圧縮)" />
+                                        <ComboBoxItem Content="PNG (ロスレス)" />
+                                    </ComboBox>
+                                </Grid>
+                                <CheckBox x:Name="ChkOpenFolderAfterExport" Content="完了後に保存先フォルダを開く" IsChecked="True" Margin="0,0,0,6" FontSize="11" />
+                                <Button x:Name="BtnExportFolder" Content="フォルダへ一括書き出し..." Height="28" Margin="0,0,0,4" FontWeight="SemiBold" Click="BtnExportFolder_Click" ToolTip="指定フォルダへ全コマを高画質一括保存 (Ctrl+E)" />
+                                <Button x:Name="BtnExportZip" Content="ZIPアーカイブへ書き出し..." Height="26" Margin="0,0,0,4" Click="BtnExportZip_Click" ToolTip="全コマを1つのZIP圧縮ファイルに保存" />
+                                <Button x:Name="BtnContactSheet" Content="コンタクトシート生成..." Height="25" Margin="0,0,0,2" Click="BtnContactSheet_Click" ToolTip="全コマのインデックスシート画像を生成" />
                             </StackPanel>
                         </GroupBox>
                     </StackPanel>
@@ -320,18 +334,26 @@
                             <TextBlock x:Name="TxtFrameSummary" Text="0 コマ登録" Foreground="#555555" FontSize="11" VerticalAlignment="Center" />
                         </StackPanel>
 
-                        <!-- 右上: アイコンのみの切替ボタン (全体 / 個別 / 全コマ設定表 / ICE差分) -->
+                        <!-- 右上: ナッジ、ビュー切替、ズーム、回転、ショートカットヘルプ -->
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                            <Button x:Name="BtnToolbarNudgeUp" Content="▲" Width="26" Height="26" Margin="1,0" FontWeight="Bold" Click="BtnNudgeUp_Click" ToolTip="全コマを一括で上へ微調整移動 (矢印キー↑でも可 / Shift併用で大移動)" />
-                            <Button x:Name="BtnToolbarNudgeDown" Content="▼" Width="26" Height="26" Margin="1,0" FontWeight="Bold" Click="BtnNudgeDown_Click" ToolTip="全コマを一括で下へ微調整移動 (矢印キー↓でも可 / Shift併用で大移動)" />
+                            <Button x:Name="BtnToolbarNudgeUp" Content="▲" Width="26" Height="26" Margin="1,0" FontWeight="Bold" Click="BtnNudgeUp_Click" ToolTip="全コマを一括で上へ微調整移動 (↑キー / Shift併用で大移動)" />
+                            <Button x:Name="BtnToolbarNudgeDown" Content="▼" Width="26" Height="26" Margin="1,0" FontWeight="Bold" Click="BtnNudgeDown_Click" ToolTip="全コマを一括で下へ微調整移動 (↓キー / Shift併用で大移動)" />
                             <Separator Margin="4,2" Width="1" Background="#B0B0B0" />
-                            <RadioButton x:Name="RbViewFull" Style="{StaticResource IconViewButtonStyle}" Content="▤" IsChecked="True" ToolTip="スキャン全体ビュー (コマ割り・原稿台全体)" Click="ViewMode_Changed" />
-                            <RadioButton x:Name="RbViewSingle" Style="{StaticResource IconViewButtonStyle}" Content="🖼" ToolTip="コマ個別ビュー (拡大表示・詳細確認)" Click="ViewMode_Changed" />
-                            <RadioButton x:Name="RbViewTable" Style="{StaticResource IconViewButtonStyle}" Content="⊞" ToolTip="全コマ設定表 (メタデータ一括入力表)" Click="ViewMode_Changed" />
-                            <RadioButton x:Name="RbViewIce" Style="{StaticResource IconViewButtonStyle}" Content="⚡" ToolTip="ICE 赤外線ゴミ・キズ差分マップビュー" Click="ViewMode_Changed" />
+                            <RadioButton x:Name="RbViewFull" Style="{StaticResource IconViewButtonStyle}" Content="▤" IsChecked="True" ToolTip="スキャン全体ビュー (Ctrl+1)" Click="ViewMode_Changed" />
+                            <RadioButton x:Name="RbViewSingle" Style="{StaticResource IconViewButtonStyle}" Content="🖼" ToolTip="コマ個別ビュー (Ctrl+2)" Click="ViewMode_Changed" />
+                            <RadioButton x:Name="RbViewTable" Style="{StaticResource IconViewButtonStyle}" Content="⊞" ToolTip="全コマ設定表 (Ctrl+3)" Click="ViewMode_Changed" />
+                            <RadioButton x:Name="RbViewIce" Style="{StaticResource IconViewButtonStyle}" Content="⚡" ToolTip="ICE 赤外線差分マップ (Ctrl+4)" Click="ViewMode_Changed" />
                             <Separator Margin="6,2" Width="1" Background="#B0B0B0" />
-                            <Button x:Name="BtnZoomFit" Content="全体" Width="40" Height="26" Margin="2,0" Click="BtnZoomFit_Click" ToolTip="画面に合わせる" />
-                            <Button x:Name="BtnRotateRight" Content="⟳" Width="28" Height="26" Margin="2,0" FontSize="13" Click="BtnRotateFrame_Click" ToolTip="90度右回転" />
+                            <Button x:Name="BtnZoomOut" Content="−" Width="24" Height="26" Margin="1,0" FontWeight="Bold" Click="BtnZoomOut_Click" ToolTip="表示縮小 (-)" />
+                            <Border Background="#FFFFFF" BorderBrush="#A0A0A0" BorderThickness="1" CornerRadius="1" Margin="1,0" Height="26" VerticalAlignment="Center" Padding="4,0">
+                                <TextBlock x:Name="TxtZoomLevel" Text="100%" Width="36" TextAlignment="Center" VerticalAlignment="Center" FontSize="11" />
+                            </Border>
+                            <Button x:Name="BtnZoomIn" Content="＋" Width="24" Height="26" Margin="1,0" FontWeight="Bold" Click="BtnZoomIn_Click" ToolTip="表示拡大 (+)" />
+                            <Button x:Name="BtnZoom100" Content="100%" Width="40" Height="26" Margin="2,0" Click="BtnZoom100_Click" ToolTip="等倍表示 (100%)" />
+                            <Button x:Name="BtnZoomFit" Content="全体" Width="40" Height="26" Margin="2,0" Click="BtnZoomFit_Click" ToolTip="画面全体に合わせる (Fキー)" />
+                            <Button x:Name="BtnRotateRight" Content="⟳" Width="28" Height="26" Margin="2,0" FontSize="13" Click="BtnRotateFrame_Click" ToolTip="90度右回転 (Rキー)" />
+                            <Separator Margin="4,2" Width="1" Background="#B0B0B0" />
+                            <Button x:Name="BtnShortcutsHelp" Content="⌨" Width="28" Height="26" Margin="2,0" FontSize="13" Click="BtnShortcutsHelp_Click" ToolTip="ショートカットキー早見表 (F1キー)" />
                         </StackPanel>
                     </Grid>
                 </Border>
@@ -348,10 +370,12 @@
                         <!-- 展開式 コマ個別精密制御パネル -->
                         <Border x:Name="PnlFrameControl" Grid.Row="0" Background="#F0F2F5" BorderBrush="#B0B4BC" BorderThickness="0,0,0,1" Padding="8,4">
                             <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <!-- コマ識別バッジ -->
-                                <Border x:Name="BadgeFrameSelection" Background="#0078D7" CornerRadius="3" Padding="7,2" Margin="0,0,8,0" VerticalAlignment="Center">
+                                <!-- コマ識別バッジ & コマ送り -->
+                                <Border x:Name="BadgeFrameSelection" Background="#0078D7" CornerRadius="3" Padding="7,2" Margin="0,0,4,0" VerticalAlignment="Center">
                                     <TextBlock x:Name="TxtSelectedFrameBadge" Text="コマ #1" Foreground="#FFFFFF" FontWeight="Bold" FontSize="11" />
                                 </Border>
+                                <Button x:Name="BtnFrameNavPrev" Content="◀" Width="24" Height="25" Margin="0,0,2,0" FontWeight="Bold" Click="BtnPrevFrame_Click" ToolTip="前のコマを選択 (PageUp)" />
+                                <Button x:Name="BtnFrameNavNext" Content="▶" Width="24" Height="25" Margin="0,0,8,0" FontWeight="Bold" Click="BtnNextFrame_Click" ToolTip="次のコマを選択 (PageDown)" />
 
                                 <!-- 方向制御 D-Pad (◀ 左, ▲ 上, ▼ 下, ▶ 右) -->
                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,8,0">
@@ -392,6 +416,10 @@
                                     <TextBox x:Name="TxtFrameH" Width="44" Height="23" VerticalContentAlignment="Center" HorizontalContentAlignment="Center" TextAlignment="Center" KeyDown="TxtFrameCoord_KeyDown" LostFocus="TxtFrameCoord_LostFocus" ToolTip="高さ (px) - Enterで確定" />
                                 </StackPanel>
 
+                                <!-- センタリング & 削除 -->
+                                <Button x:Name="BtnFrameCenter" Content="◎ 中央配置" Height="25" Margin="0,0,4,0" Click="BtnFrameCenter_Click" ToolTip="選択コマを画像中央・フィルム幅中央に整列" />
+                                <Button x:Name="BtnFrameDeleteQuick" Content="✕ 削除" Height="25" Margin="0,0,8,0" Click="BtnDeleteFrame_Click" ToolTip="選択コマを削除 (Deleteキー)" />
+
                                 <!-- 連動スコープ切替 (選択コマ / 全コマ) -->
                                 <Border BorderBrush="#C0C4CC" BorderThickness="1" CornerRadius="3" Background="#FFFFFF" Padding="4,2" Margin="0,0,8,0" VerticalAlignment="Center">
                                     <StackPanel Orientation="Horizontal">
@@ -401,7 +429,7 @@
                                 </Border>
 
                                 <!-- マウスドラッグ禁止チェックボックス (非定型操作防止) -->
-                                <CheckBox x:Name="ChkLockMouseDrag" Content="ドラッグ変形を禁止 (誤操作防止)" IsChecked="True" VerticalAlignment="Center" FontSize="11" FontWeight="SemiBold" Foreground="#8B0000" Checked="ChkLockMouseDrag_Changed" Unchecked="ChkLockMouseDrag_Changed" ToolTip="マウスでのドラッグ移動・リサイズ変形を禁止し、ボタンによる定型制御のみを受け付けます" />
+                                <CheckBox x:Name="ChkLockMouseDrag" Content="ドラッグ変形を禁止" IsChecked="True" VerticalAlignment="Center" FontSize="11" FontWeight="SemiBold" Foreground="#8B0000" Checked="ChkLockMouseDrag_Changed" Unchecked="ChkLockMouseDrag_Changed" ToolTip="マウスでのドラッグ移動・リサイズ変形を禁止し、ボタンによる定型制御のみを受け付けます" />
                             </WrapPanel>
                         </Border>
 
@@ -419,13 +447,20 @@
                             <Image x:Name="ImgSinglePreview" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality" Margin="10" />
                         </ScrollViewer>
 
-                        <!-- コマ送りコントロール -->
-                        <Border Grid.Row="1" Background="#3A3A3A" BorderBrush="#555555" BorderThickness="0,1,0,0">
-                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                <Button x:Name="BtnPrevFrame" Content="◀ 前のコマ" Width="90" Height="24" Click="BtnPrevFrame_Click" />
-                                <TextBlock x:Name="TxtSingleFrameInfo" Text="コマ 1 / 1" Foreground="#FFFFFF" FontWeight="Bold" Margin="16,0" VerticalAlignment="Center" />
-                                <Button x:Name="BtnNextFrame" Content="次のコマ ▶" Width="90" Height="24" Click="BtnNextFrame_Click" />
-                            </StackPanel>
+                        <!-- コマ送り・クイック調整コントロール -->
+                        <Border Grid.Row="1" Background="#3A3A3A" BorderBrush="#555555" BorderThickness="0,1,0,0" Padding="8,2">
+                            <Grid>
+                                <Button x:Name="BtnBackToFullView" Content="▤ 全体ビューへ戻る" HorizontalAlignment="Left" VerticalAlignment="Center" Height="26" Click="BtnBackToFullView_Click" ToolTip="スキャン全体ビューに切り替え (Ctrl+1)" />
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <Button x:Name="BtnPrevFrame" Content="◀ 前のコマ" Width="90" Height="26" Click="BtnPrevFrame_Click" ToolTip="前のコマへ (PageUp)" />
+                                    <TextBlock x:Name="TxtSingleFrameInfo" Text="コマ 1 / 1" Foreground="#FFFFFF" FontWeight="Bold" Margin="16,0" VerticalAlignment="Center" />
+                                    <Button x:Name="BtnNextFrame" Content="次のコマ ▶" Width="90" Height="26" Click="BtnNextFrame_Click" ToolTip="次のコマへ (PageDown)" />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                    <Button x:Name="BtnSingleAutoTone" Content="🪄 自動トーン" Height="26" Margin="0,0,6,0" Click="BtnAutoTone_Click" ToolTip="このコマの露出・コントラスト・WBを自動最適化 (Ctrl+T)" />
+                                    <Button x:Name="BtnSingleRotate" Content="⟳ 90°回転" Height="26" Click="BtnRotateFrame_Click" ToolTip="90度右回転 (Rキー)" />
+                                </StackPanel>
+                            </Grid>
                         </Border>
                     </Grid>
 
@@ -568,7 +603,26 @@
                                     <TextBlock x:Name="TxtTintVal" Text="0" Grid.Column="2" TextAlignment="Right" VerticalAlignment="Center" FontSize="11" />
                                 </Grid>
 
-                                <Button x:Name="BtnResetColor" Content="トーン設定を初期化" Margin="0,6,0,2" Click="BtnResetColor_Click" />
+                                <Button x:Name="BtnAutoTone" Content="🪄 自動トーン補正 (Auto Tone)" Height="28" Margin="0,6,0,2" FontWeight="Bold" Background="#D5E8FF" BorderBrush="#0078D7" Click="BtnAutoTone_Click" ToolTip="中央部の露光ヒストグラムとRGBバランスを解析し、露出・コントラスト・WBを自動最適化 (Ctrl+T)" />
+                                <Button x:Name="BtnApplyToneToAll" Content="このトーン調整を全コマにコピー" Height="26" Margin="0,2,0,6" Click="BtnApplyToneToAll_Click" ToolTip="現在のコマのトーン設定（露出・コントラスト・彩度・色温度・色合い・ベース色）を全コマに一括適用" />
+
+                                <Label Content="クイックトーンプリセット:" Margin="0,2,0,1" />
+                                <Grid Margin="0,0,0,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="25" />
+                                        <RowDefinition Height="25" />
+                                    </Grid.RowDefinitions>
+                                    <Button x:Name="BtnPresetNeutral" Content="標準 / Neutral" Grid.Row="0" Grid.Column="0" Margin="1" Click="BtnPresetNeutral_Click" ToolTip="自然で素直なニュートラルトーン" />
+                                    <Button x:Name="BtnPresetVivid" Content="鮮やか / Vivid" Grid.Row="0" Grid.Column="1" Margin="1" Click="BtnPresetVivid_Click" ToolTip="高コントラスト・高彩度" />
+                                    <Button x:Name="BtnPresetCinema" Content="シネマ / Cinema" Grid.Row="1" Grid.Column="0" Margin="1" Click="BtnPresetCinema_Click" ToolTip="ティール＆オレンジの映画風トーン" />
+                                    <Button x:Name="BtnPresetHighKey" Content="ハイキー / HighKey" Grid.Row="1" Grid.Column="1" Margin="1" Click="BtnPresetHighKey_Click" ToolTip="明るく柔らかな透明感あるトーン" />
+                                </Grid>
+
+                                <Button x:Name="BtnResetColor" Content="トーン設定を初期化" Margin="0,2,0,2" Click="BtnResetColor_Click" />
                             </StackPanel>
                         </GroupBox>
 
@@ -604,13 +658,48 @@
                 <Grid Grid.Row="0">
                     <TextBlock x:Name="TxtFilmstripHeader" Text="フィルムストリップ (Film Strip)" FontWeight="SemiBold" FontSize="11" VerticalAlignment="Center" />
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                        <TextBlock Text="コマの選択・確認" FontSize="10" Foreground="#666666" VerticalAlignment="Center" Margin="0,0,8,0" />
+                        <TextBlock Text="※ダブルクリックで拡大・個別確認 / ホイール左右スクロール" FontSize="10" Foreground="#666666" VerticalAlignment="Center" Margin="0,0,8,0" />
                     </StackPanel>
                 </Grid>
 
                 <ListBox x:Name="LstFilmStrip" Grid.Row="1" Background="#FFFFFF" BorderBrush="#C0C0C0" BorderThickness="1"
                          ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Disabled"
-                         SelectionChanged="LstFilmStrip_SelectionChanged">
+                         SelectionChanged="LstFilmStrip_SelectionChanged"
+                         PreviewMouseWheel="LstFilmStrip_PreviewMouseWheel"
+                         MouseDoubleClick="LstFilmStrip_MouseDoubleClick">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="Padding" Value="0" />
+                            <Setter Property="Margin" Value="2" />
+                            <Setter Property="Background" Value="Transparent" />
+                            <Setter Property="BorderThickness" Value="2" />
+                            <Setter Property="BorderBrush" Value="Transparent" />
+                            <Setter Property="Cursor" Value="Hand" />
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListBoxItem">
+                                        <Border x:Name="Bd" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" Background="{TemplateBinding Background}" CornerRadius="2">
+                                            <ContentPresenter />
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsSelected" Value="True">
+                                                <Setter TargetName="Bd" Property="BorderBrush" Value="#0078D7" />
+                                                <Setter TargetName="Bd" Property="Background" Value="#E5F1FB" />
+                                            </Trigger>
+                                            <MultiTrigger>
+                                                <MultiTrigger.Conditions>
+                                                    <Condition Property="IsMouseOver" Value="True" />
+                                                    <Condition Property="IsSelected" Value="False" />
+                                                </MultiTrigger.Conditions>
+                                                <Setter TargetName="Bd" Property="BorderBrush" Value="#B0D5F7" />
+                                                <Setter TargetName="Bd" Property="Background" Value="#F5F9FD" />
+                                            </MultiTrigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
                     <ListBox.ItemsPanel>
                         <ItemsPanelTemplate>
                             <VirtualizingStackPanel Orientation="Horizontal" />
@@ -618,12 +707,12 @@
                     </ListBox.ItemsPanel>
                     <ListBox.ItemTemplate>
                         <DataTemplate>
-                            <Border BorderBrush="{Binding IsSelected, Converter={x:Null}}" BorderThickness="1" Background="#FAFAFA" Margin="3" Padding="3" Width="100">
+                            <Border Padding="4" Width="98">
                                 <StackPanel HorizontalAlignment="Center">
                                     <!-- コマ番号バッジ -->
                                     <TextBlock Text="{Binding FrameNumber, StringFormat='Frame #{0}'}" FontWeight="Bold" FontSize="10" HorizontalAlignment="Center" Margin="0,0,0,2" />
                                     <!-- サムネイル画像 -->
-                                    <Border BorderBrush="#CCCCCC" BorderThickness="1" Background="#000000" Width="88" Height="60">
+                                    <Border BorderBrush="#999999" BorderThickness="1" Background="#111111" Width="88" Height="60">
                                         <Image Source="{Binding Thumbnail}" Stretch="Uniform" />
                                     </Border>
                                     <TextBlock Text="{Binding CameraModel}" FontSize="9" Foreground="#666666" TextTrimming="CharacterEllipsis" HorizontalAlignment="Center" Margin="0,2,0,0" />

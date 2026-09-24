@@ -26,9 +26,18 @@
   <Target Name="BuildTwainWorker" BeforeTargets="Build">
     <MSBuild Projects="TwainWorker\TwainWorker.csproj" Targets="Build" Properties="Configuration=$(Configuration);Platform=x86" />
     <ItemGroup>
-      <TwainWorkerFiles Include="TwainWorker\bin\$(Configuration)\net8.0-windows\*.*" />
+      <TwainWorkerFiles Include="TwainWorker\bin\x86\$(Configuration)\net8.0-windows\*.*" />
+      <TwainWorkerFiles Include="TwainWorker\bin\$(Configuration)\net8.0-windows\*.*" Condition="'@(TwainWorkerFiles)' == ''" />
     </ItemGroup>
     <Copy SourceFiles="@(TwainWorkerFiles)" DestinationFolder="$(OutputPath)TwainWorker\" SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="PublishTwainWorker" AfterTargets="Publish">
+    <ItemGroup>
+      <TwainWorkerFilesPublish Include="TwainWorker\bin\x86\$(Configuration)\net8.0-windows\*.*" />
+      <TwainWorkerFilesPublish Include="TwainWorker\bin\$(Configuration)\net8.0-windows\*.*" Condition="'@(TwainWorkerFilesPublish)' == ''" />
+    </ItemGroup>
+    <Copy SourceFiles="@(TwainWorkerFilesPublish)" DestinationFolder="$(PublishDir)TwainWorker\" SkipUnchangedFiles="true" />
   </Target>
 
 </Project>

@@ -152,7 +152,7 @@ namespace IrisPxS.Models
                     ShortName = "General",
                     PhysicalWidthMm = 17.0,
                     PhysicalHeightMm = 13.0,
-                    DefaultFramesPerStrip = 6
+                    DefaultFramesPerStrip = 8
                 }
             };
         }
