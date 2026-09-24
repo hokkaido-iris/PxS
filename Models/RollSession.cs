@@ -4,11 +4,61 @@ using System.Runtime.CompilerServices;
 
 namespace IrisPxS.Models
 {
+    public enum StripStatus
+    {
+        NotScanned,    // 未スキャン
+        PreScanned,    // PreScan済
+        Scanned        // 本スキャン済
+    }
+
     public class FilmStrip : INotifyPropertyChanged
     {
         public string Id { get; set; } = Guid.NewGuid().ToString("N");
-        public int StripIndex { get; set; } = 1;
-        public string Name { get; set; } = string.Empty;
+
+        private int _stripIndex = 1;
+        public int StripIndex
+        {
+            get => _stripIndex;
+            set { _stripIndex = value; OnPropertyChanged(); }
+        }
+
+        private string _name = string.Empty;
+        public string Name
+        {
+            get => string.IsNullOrEmpty(_name) ? $"Cut {StripIndex}" : _name;
+            set { _name = value; OnPropertyChanged(); }
+        }
+
+        private StripStatus _status = StripStatus.NotScanned;
+        public StripStatus Status
+        {
+            get => _status;
+            set
+            {
+                _status = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(StatusText));
+                OnPropertyChanged(nameof(StatusColor));
+            }
+        }
+
+        public string StatusText => Status switch
+        {
+            StripStatus.NotScanned => "未スキャン",
+            StripStatus.PreScanned => "PreScan済",
+            StripStatus.Scanned => "Scan済",
+            _ => "未スキャン"
+        };
+
+        public string StatusColor => Status switch
+        {
+            StripStatus.NotScanned => "#888888",
+            StripStatus.PreScanned => "#FD7E14", // オレンジ
+            StripStatus.Scanned => "#28A745",    // グリーン
+            _ => "#888888"
+        };
+
+        public string FrameCountText => Frames.Count > 0 ? $"{Frames.Count} コマ" : "-";
 
         // スキャン全体のプレビュー画像およびIR画像の保存パス
         public string? FullScanImagePath { get; set; }
@@ -21,13 +71,23 @@ namespace IrisPxS.Models
         public ObservableCollection<FilmFrame> Frames
         {
             get => _frames;
-            set { _frames = value; OnPropertyChanged(); }
+            set
+            {
+                _frames = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(FrameCountText));
+            }
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;
-        protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+        public void OnPropertyChanged([CallerMemberName] string? propertyName = null)
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
+
+        public void NotifyFrameCountChanged()
+        {
+            OnPropertyChanged(nameof(FrameCountText));
         }
     }
 

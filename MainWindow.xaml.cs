@@ -160,8 +160,23 @@ namespace IrisPxS
             CmbFilmBrand.Text = string.Empty;
             CmbRollIso.Text = string.Empty;
 
-            LstFilmStrip.ItemsSource = _currentRoll.AllFrames;
+            // 初期カット（Cut 1）を作成して追加
+            var initialStrip = new FilmStrip
+            {
+                StripIndex = 1,
+                Name = "Cut 1",
+                Status = StripStatus.NotScanned
+            };
+            _currentRoll.Strips.Add(initialStrip);
+            _currentStrip = initialStrip;
+
+            LstCuts.ItemsSource = _currentRoll.Strips;
+            LstCuts.SelectedItem = initialStrip;
+
+            LstFilmStrip.ItemsSource = initialStrip.Frames;
             DgFramesTable.ItemsSource = _currentRoll.AllFrames;
+
+            UpdateCutSummary();
             UpdateFrameSummary();
         }
 
@@ -292,8 +307,14 @@ namespace IrisPxS
             try
             {
                 var (colorMat, irMat) = await _scannerService.ScanWithDialogAsync(progress);
-                string stripName = $"Strip {_currentRoll.Strips.Count + 1}";
-                ApplyNewScanData(stripName, colorMat, irMat, 2400, true);
+                if (_currentStrip == null)
+                {
+                    int nextIdx = _currentRoll.Strips.Count + 1;
+                    _currentStrip = new FilmStrip { StripIndex = nextIdx, Name = $"Cut {nextIdx}", Status = StripStatus.NotScanned };
+                    _currentRoll.Strips.Add(_currentStrip);
+                    LstCuts.SelectedItem = _currentStrip;
+                }
+                ApplyScanDataToCut(_currentStrip, colorMat, irMat, 2400, isPreScan: false);
             }
             catch (OperationCanceledException)
             {
@@ -316,11 +337,24 @@ namespace IrisPxS
 
             try
             {
+                // 選択中のカットがなければ作成
+                if (_currentStrip == null)
+                {
+                    int nextIdx = _currentRoll.Strips.Count + 1;
+                    _currentStrip = new FilmStrip
+                    {
+                        StripIndex = nextIdx,
+                        Name = $"Cut {nextIdx}",
+                        Status = StripStatus.NotScanned
+                    };
+                    _currentRoll.Strips.Add(_currentStrip);
+                    LstCuts.SelectedItem = _currentStrip;
+                }
+
                 // フィルムスキャンのため isTransmissive = true (TPU 透過光ユニット点灯)
                 var (colorMat, irMat) = await _scannerService.ScanAsync(_activeScanner, dpi, true, null, progress);
 
-                string stripName = isPreScan ? $"PreScan_{DateTime.Now:HHmmss}" : $"Strip {_currentRoll.Strips.Count + 1}";
-                ApplyNewScanData(stripName, colorMat, irMat, dpi, true);
+                ApplyScanDataToCut(_currentStrip, colorMat, irMat, dpi, isPreScan);
             }
             catch (Exception ex)
             {
@@ -342,7 +376,7 @@ namespace IrisPxS
             SetScannerStatus(isScanning ? ScannerState.Busy : ScannerState.Ready, isScanning ? "Scanning..." : "Ready");
         }
 
-        private void ApplyNewScanData(string stripName, Mat colorMat, Mat? irMat, int dpi, bool autoDetect)
+        private void ApplyScanDataToCut(FilmStrip strip, Mat colorMat, Mat? irMat, int dpi, bool isPreScan)
         {
             _isUpdatingUi = true;
             try
@@ -359,37 +393,77 @@ namespace IrisPxS
                 _currentScanMat = colorMat.Clone();
                 _currentIrMat = irMat?.Clone();
 
-                var strip = new FilmStrip
-                {
-                    Name = stripName,
-                    StripIndex = _currentRoll.Strips.Count + 1,
-                    ScanDpi = dpi
-                };
+                int oldDpi = strip.ScanDpi > 0 ? strip.ScanDpi : 300;
+                strip.ScanDpi = dpi;
+                strip.ScannedAt = DateTime.Now;
 
                 var (rawPath, irPath) = _sessionService.SaveStripImages(_currentRoll.SessionId, strip.Id, _currentScanMat, _currentIrMat);
                 strip.FullScanImagePath = rawPath;
                 strip.FullScanIrPath = irPath;
 
-                _currentRoll.Strips.Add(strip);
-                _currentStrip = strip;
-
                 // スキャン原稿画像を表示
-                var wpfBitmap = _currentScanMat.ToBitmapSource();
-                ScanCanvas.ImageSource = wpfBitmap;
-                ScanCanvas.Frames = _currentRoll.AllFrames;
+                ScanCanvas.ImageSource = _currentScanMat.ToBitmapSource();
 
-                if (autoDetect)
+                if (isPreScan)
                 {
-                    PerformAutoDetectFrames();
+                    // Pre-Scan: 自動コマ認識を実行してコマ枠を検出
+                    strip.Status = StripStatus.PreScanned;
+                    PerformAutoDetectFramesOnStrip(strip, _currentScanMat, _currentIrMat);
+                    TxtStatus.Text = $"{strip.Name}: Pre-Scan完了 ({strip.Frames.Count}コマ検出)。コマ枠を確認・微調整して [Scan] を実行してください。";
                 }
+                else
+                {
+                    // 本スキャン:
+                    // すでに PreScan 時のコマ枠がある場合は、解像度比率で拡大スケーリングして引き継ぐ
+                    if (strip.Frames.Count > 0 && oldDpi != dpi && oldDpi > 0)
+                    {
+                        double scale = (double)dpi / oldDpi;
+                        foreach (var f in strip.Frames)
+                        {
+                            var r = f.CropRect;
+                            int sx = (int)Math.Round(r.X * scale);
+                            int sy = (int)Math.Round(r.Y * scale);
+                            int sw = (int)Math.Round(r.Width * scale);
+                            int sh = (int)Math.Round(r.Height * scale);
+
+                            sx = Math.Max(0, Math.Min(sx, _currentScanMat.Width - 10));
+                            sy = Math.Max(0, Math.Min(sy, _currentScanMat.Height - 10));
+                            sw = Math.Min(sw, _currentScanMat.Width - sx);
+                            sh = Math.Min(sh, _currentScanMat.Height - sy);
+
+                            f.CropRect = new OpenCvSharp.Rect(sx, sy, sw, sh);
+                            f.RawImagePath = strip.FullScanImagePath;
+                            f.IrImagePath = strip.FullScanIrPath;
+                            UpdateFrameThumbnail(f);
+                        }
+                    }
+                    else if (strip.Frames.Count == 0)
+                    {
+                        // PreScan なしで直接 Scan された場合は自動認識
+                        PerformAutoDetectFramesOnStrip(strip, _currentScanMat, _currentIrMat);
+                    }
+                    else
+                    {
+                        // 同一DPIの場合はサムネイル更新
+                        foreach (var f in strip.Frames)
+                        {
+                            f.RawImagePath = strip.FullScanImagePath;
+                            f.IrImagePath = strip.FullScanIrPath;
+                            UpdateFrameThumbnail(f);
+                        }
+                    }
+
+                    strip.Status = StripStatus.Scanned;
+                    TxtStatus.Text = $"{strip.Name}: 本スキャン完了 ({strip.Frames.Count}コマ)。続いて [＋ 次のカット] をセットするか、[ロール一括書き出し] を実行してください。";
+                }
+
+                SyncAllFramesFromStrips();
+                SelectCut(strip);
             }
             finally
             {
                 _isUpdatingUi = false;
             }
-
-            TxtStatus.Text = $"透過原稿スキャン完了: {colorMat.Width}x{colorMat.Height} px ({dpi} DPI, 透過光TPU)";
-            UpdateFrameSummary();
         }
 
         // ======================================================================
@@ -865,44 +939,183 @@ namespace IrisPxS
             }
         }
 
-        private void BtnAutoDetectFrames_Click(object sender, RoutedEventArgs e)
+        private void LstCuts_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            PerformAutoDetectFrames();
+            if (_isUpdatingUi) return;
+            if (LstCuts.SelectedItem is FilmStrip selectedStrip)
+            {
+                SelectCut(selectedStrip);
+            }
         }
 
-        private void PerformAutoDetectFrames()
+        private void SelectCut(FilmStrip strip)
         {
-            if (_currentScanMat == null || _currentScanMat.IsDisposed)
+            if (strip == null) return;
+            _currentStrip = strip;
+
+            // スキャン画像が存在すればロードして ScanCanvas に表示
+            if (!string.IsNullOrEmpty(strip.FullScanImagePath) && File.Exists(strip.FullScanImagePath))
+            {
+                if (_currentScanMat != null && !_currentScanMat.IsDisposed) _currentScanMat.Dispose();
+                _currentScanMat = Cv2.ImRead(strip.FullScanImagePath);
+
+                if (!string.IsNullOrEmpty(strip.FullScanIrPath) && File.Exists(strip.FullScanIrPath))
+                {
+                    if (_currentIrMat != null && !_currentIrMat.IsDisposed) _currentIrMat.Dispose();
+                    _currentIrMat = Cv2.ImRead(strip.FullScanIrPath);
+                }
+                else
+                {
+                    if (_currentIrMat != null && !_currentIrMat.IsDisposed) _currentIrMat.Dispose();
+                    _currentIrMat = null;
+                }
+
+                ScanCanvas.ImageSource = _currentScanMat.ToBitmapSource();
+            }
+            else
+            {
+                if (_currentScanMat != null && !_currentScanMat.IsDisposed) _currentScanMat.Dispose();
+                _currentScanMat = null;
+                if (_currentIrMat != null && !_currentIrMat.IsDisposed) _currentIrMat.Dispose();
+                _currentIrMat = null;
+                ScanCanvas.ImageSource = null;
+            }
+
+            // コマ枠とサムネイルバーを選択中カットのものに切り替え
+            ScanCanvas.Frames = strip.Frames;
+            ScanCanvas.InvalidateVisual();
+
+            LstFilmStrip.ItemsSource = null;
+            LstFilmStrip.ItemsSource = strip.Frames;
+            TxtFilmstripHeader.Text = $"フィルムストリップ ({strip.Name} - {strip.StatusText})";
+
+            if (strip.Frames.Count > 0)
+            {
+                SelectFrame(strip.Frames[0]);
+            }
+            else
+            {
+                _selectedFrame = null;
+                ScanCanvas.SelectedFrame = null;
+                ScanCanvas.InvalidateVisual();
+            }
+
+            UpdateFrameSummary();
+        }
+
+        private void SyncAllFramesFromStrips()
+        {
+            _currentRoll.AllFrames.Clear();
+            int frameNum = 1;
+            foreach (var strip in _currentRoll.Strips)
+            {
+                foreach (var frame in strip.Frames)
+                {
+                    frame.FrameNumber = frameNum++;
+                    _currentRoll.AllFrames.Add(frame);
+                }
+                strip.NotifyFrameCountChanged();
+            }
+            DgFramesTable.ItemsSource = null;
+            DgFramesTable.ItemsSource = _currentRoll.AllFrames;
+            UpdateCutSummary();
+            UpdateFrameSummary();
+        }
+
+        private void UpdateCutSummary()
+        {
+            if (TxtCutSummary != null)
+            {
+                int totalCuts = _currentRoll.Strips.Count;
+                int scannedCuts = _currentRoll.Strips.Count(s => s.Status == StripStatus.Scanned);
+                TxtCutSummary.Text = $"{totalCuts} カット (完了: {scannedCuts})";
+            }
+        }
+
+        private void BtnNewCut_Click(object sender, RoutedEventArgs e)
+        {
+            int nextIndex = _currentRoll.Strips.Count + 1;
+            var newStrip = new FilmStrip
+            {
+                StripIndex = nextIndex,
+                Name = $"Cut {nextIndex}",
+                Status = StripStatus.NotScanned
+            };
+            _currentRoll.Strips.Add(newStrip);
+            UpdateCutSummary();
+            LstCuts.SelectedItem = newStrip;
+            SelectCut(newStrip);
+            TxtStatus.Text = $"{newStrip.Name} を追加しました。フィルムをセットして [Pre-Scan] を実行してください。";
+        }
+
+        private void BtnDeleteCut_Click(object sender, RoutedEventArgs e)
+        {
+            if (LstCuts.SelectedItem is not FilmStrip targetStrip) return;
+            if (_currentRoll.Strips.Count <= 1)
+            {
+                MessageBox.Show("最低1つのカットが必要です。", "案内", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var res = MessageBox.Show($"{targetStrip.Name} を削除しますか？\n（含まれる {targetStrip.Frames.Count} コマも削除されます）", "確認", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (res != MessageBoxResult.Yes) return;
+
+            _currentRoll.Strips.Remove(targetStrip);
+
+            for (int i = 0; i < _currentRoll.Strips.Count; i++)
+            {
+                _currentRoll.Strips[i].StripIndex = i + 1;
+            }
+
+            SyncAllFramesFromStrips();
+            var fallback = _currentRoll.Strips.Last();
+            LstCuts.SelectedItem = fallback;
+            SelectCut(fallback);
+        }
+
+        private void BtnAutoDetectFrames_Click(object sender, RoutedEventArgs e)
+        {
+            if (_currentStrip == null || _currentScanMat == null || _currentScanMat.IsDisposed)
             {
                 MessageBox.Show("スキャン画像または読み込み画像がありません。[Pre-Scan] を実行してください。", "案内", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
+            PerformAutoDetectFrames();
+        }
+
+        private void PerformAutoDetectFrames()
+        {
+            if (_currentStrip == null || _currentScanMat == null || _currentScanMat.IsDisposed) return;
+            PerformAutoDetectFramesOnStrip(_currentStrip, _currentScanMat, _currentIrMat);
+            SyncAllFramesFromStrips();
+            SelectCut(_currentStrip);
+        }
+
+        private void PerformAutoDetectFramesOnStrip(FilmStrip strip, Mat scanMat, Mat? irMat)
+        {
             var format = GetSelectedFormat();
-            int dpi = GetCurrentScanMatDpi();
+            int dpi = strip.ScanDpi > 0 ? strip.ScanDpi : 300;
             TxtStatus.Text = $"フィルム全体のコントラストから傾き検知およびコマ枠配置を実行中 (フォーマット: {format.DisplayName}, {dpi} DPI)...";
 
-            var (straightenedMat, skewAngle, detectedRects) = _detectorService.DetectAndStraighten(_currentScanMat, format, dpi);
+            var (straightenedMat, skewAngle, detectedRects) = _detectorService.DetectAndStraighten(scanMat, format, dpi);
 
             // 傾きが検知された場合 (0.1度以上)、画像を正立（回転補正）した画像に差し替え
             if (Math.Abs(skewAngle) >= 0.1)
             {
-                _currentScanMat.Dispose();
+                scanMat.Dispose();
                 _currentScanMat = straightenedMat;
 
-                if (_currentIrMat != null && !_currentIrMat.IsDisposed)
+                if (irMat != null && !irMat.IsDisposed)
                 {
-                    var straightIr = _detectorService.StraightenImage(_currentIrMat, skewAngle);
-                    _currentIrMat.Dispose();
+                    var straightIr = _detectorService.StraightenImage(irMat, skewAngle);
+                    irMat.Dispose();
                     _currentIrMat = straightIr;
                 }
 
-                if (_currentStrip != null)
-                {
-                    var (rawPath, irPath) = _sessionService.SaveStripImages(_currentRoll.SessionId, _currentStrip.Id, _currentScanMat, _currentIrMat);
-                    _currentStrip.FullScanImagePath = rawPath;
-                    _currentStrip.FullScanIrPath = irPath;
-                }
+                var (rawPath, irPath) = _sessionService.SaveStripImages(_currentRoll.SessionId, strip.Id, _currentScanMat, _currentIrMat);
+                strip.FullScanImagePath = rawPath;
+                strip.FullScanIrPath = irPath;
 
                 ScanCanvas.ImageSource = _currentScanMat.ToBitmapSource();
             }
@@ -911,14 +1124,7 @@ namespace IrisPxS
                 straightenedMat.Dispose();
             }
 
-            if (_currentStrip == null)
-            {
-                _currentStrip = new FilmStrip { Name = "Strip 1", ScanDpi = dpi };
-                _currentRoll.Strips.Add(_currentStrip);
-            }
-
-            _currentStrip.Frames.Clear();
-            _currentRoll.AllFrames.Clear();
+            strip.Frames.Clear();
 
             int startNumber = 1;
             foreach (var r in detectedRects)
@@ -926,10 +1132,10 @@ namespace IrisPxS
                 var frame = new FilmFrame
                 {
                     FrameNumber = startNumber++,
-                    StripId = _currentStrip.Id,
+                    StripId = strip.Id,
                     CropRect = r,
-                    RawImagePath = _currentStrip.FullScanImagePath,
-                    IrImagePath = _currentStrip.FullScanIrPath,
+                    RawImagePath = strip.FullScanImagePath,
+                    IrImagePath = strip.FullScanIrPath,
                     CameraModel = "",
                     LensModel = "",
                     FNumber = 0.0,
@@ -948,44 +1154,21 @@ namespace IrisPxS
                     frame.BaseColorB = _selectedFrame.BaseColorB;
                 }
 
-                _currentStrip.Frames.Add(frame);
-                _currentRoll.AllFrames.Add(frame);
+                strip.Frames.Add(frame);
                 UpdateFrameThumbnail(frame);
             }
 
-            ScanCanvas.Frames = null;
-            ScanCanvas.Frames = _currentRoll.AllFrames;
-            ScanCanvas.InvalidateVisual();
-
-            LstFilmStrip.ItemsSource = null;
-            LstFilmStrip.ItemsSource = _currentRoll.AllFrames;
-
-            DgFramesTable.ItemsSource = null;
-            DgFramesTable.ItemsSource = _currentRoll.AllFrames;
-
-            if (_currentRoll.AllFrames.Count > 0)
-            {
-                SelectFrame(_currentRoll.AllFrames[0]);
-            }
-
-            UpdateFrameSummary();
             TxtStatus.Text = Math.Abs(skewAngle) >= 0.1
-                ? $"コントラストから傾き {skewAngle:F1}° を検知・自動正立補正し、フォーマット「{format.DisplayName}」に基づき {detectedRects.Count} コマを自動生成しました。"
-                : $"フォーマット「{format.DisplayName}」に基づき {detectedRects.Count} コマを自動配置しました。";
+                ? $"{strip.Name}: 傾き {skewAngle:F1}° を検知・自動正立補正し、{detectedRects.Count} コマを自動生成しました。"
+                : $"{strip.Name}: {detectedRects.Count} コマを自動配置しました。";
         }
 
         private void BtnAddFrame_Click(object sender, RoutedEventArgs e)
         {
-            if (_currentScanMat == null || _currentScanMat.IsDisposed)
+            if (_currentStrip == null || _currentScanMat == null || _currentScanMat.IsDisposed)
             {
                 MessageBox.Show("スキャン画像がありません。", "情報", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
-            }
-
-            if (_currentStrip == null)
-            {
-                _currentStrip = new FilmStrip { Name = "Strip 1", ScanDpi = GetCurrentScanMatDpi() };
-                _currentRoll.Strips.Add(_currentStrip);
             }
 
             var format = GetSelectedFormat();
@@ -1012,42 +1195,23 @@ namespace IrisPxS
             };
 
             _currentStrip.Frames.Add(newFrame);
-            _currentRoll.AllFrames.Add(newFrame);
-
             UpdateFrameThumbnail(newFrame);
-            ScanCanvas.Frames = null;
-            ScanCanvas.Frames = _currentRoll.AllFrames;
-            ScanCanvas.InvalidateVisual();
-
-            LstFilmStrip.ItemsSource = null;
-            LstFilmStrip.ItemsSource = _currentRoll.AllFrames;
-
-            DgFramesTable.ItemsSource = null;
-            DgFramesTable.ItemsSource = _currentRoll.AllFrames;
-
+            SyncAllFramesFromStrips();
+            SelectCut(_currentStrip);
             SelectFrame(newFrame);
-            UpdateFrameSummary();
         }
 
         private void BtnDeleteFrame_Click(object sender, RoutedEventArgs e)
         {
-            if (_selectedFrame != null && _currentStrip != null)
+            if (_selectedFrame == null || _currentStrip == null)
             {
-                _currentStrip.Frames.Remove(_selectedFrame);
-                _currentRoll.AllFrames.Remove(_selectedFrame);
-                ScanCanvas.Frames = _currentRoll.AllFrames;
-                ScanCanvas.InvalidateVisual();
-
-                if (_currentRoll.AllFrames.Count > 0)
-                {
-                    SelectFrame(_currentRoll.AllFrames[0]);
-                }
-                else
-                {
-                    _selectedFrame = null;
-                }
-                UpdateFrameSummary();
+                MessageBox.Show("削除するコマ枠が選択されていません。", "案内", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
             }
+
+            _currentStrip.Frames.Remove(_selectedFrame);
+            SyncAllFramesFromStrips();
+            SelectCut(_currentStrip);
         }
 
         private void BtnNudgeUp_Click(object sender, RoutedEventArgs e)

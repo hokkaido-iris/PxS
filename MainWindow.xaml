@@ -138,7 +138,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="46" />  <!-- [上側] Machine Control -->
             <RowDefinition Height="*" />   <!-- [ワークエリア] 3 Columns -->
-            <RowDefinition Height="125" /> <!-- [下側] Film Strip -->
+            <RowDefinition Height="145" /> <!-- [下側] Film Strip & Cuts -->
             <RowDefinition Height="22" />  <!-- StatusStrip -->
         </Grid.RowDefinitions>
 
@@ -646,81 +646,172 @@
         </Grid>
 
         <!-- ====================================================================== -->
-        <!-- 【下側】Film Strip (サムネイルバー)                                    -->
+        <!-- 【下側】Film Strip (カット一覧 ＆ サムネイルバー)                      -->
         <!-- ====================================================================== -->
-        <Border Grid.Row="2" Background="#E8E8E8" BorderBrush="#B0B0B0" BorderThickness="0,1,0,0" Padding="6,4">
+        <Border Grid.Row="2" Background="#E8E8E8" BorderBrush="#B0B0B0" BorderThickness="0,1,0,0" Padding="4,3">
             <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="20" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="220" MinWidth="180" /> <!-- 【左端】カット一覧 (Cuts / Strips) -->
+                    <ColumnDefinition Width="*" />                  <!-- 【右側】選択カットのコマ一覧 -->
+                </Grid.ColumnDefinitions>
 
-                <Grid Grid.Row="0">
-                    <TextBlock x:Name="TxtFilmstripHeader" Text="フィルムストリップ (Film Strip)" FontWeight="SemiBold" FontSize="11" VerticalAlignment="Center" />
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                        <TextBlock Text="※ダブルクリックで拡大・個別確認 / ホイール左右スクロール" FontSize="10" Foreground="#666666" VerticalAlignment="Center" Margin="0,0,8,0" />
-                    </StackPanel>
-                </Grid>
+                <!-- ========================================================== -->
+                <!-- 【左端】カット一覧パネル                                   -->
+                <!-- ========================================================== -->
+                <Border Grid.Column="0" Background="#F8F8F8" BorderBrush="#C0C0C0" BorderThickness="1" Margin="0,0,4,0">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="22" /> <!-- カットヘッダー -->
+                            <RowDefinition Height="*" />  <!-- リスト -->
+                            <RowDefinition Height="28" /> <!-- 操作ボタン -->
+                        </Grid.RowDefinitions>
 
-                <ListBox x:Name="LstFilmStrip" Grid.Row="1" Background="#FFFFFF" BorderBrush="#C0C0C0" BorderThickness="1"
-                         ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Disabled"
-                         SelectionChanged="LstFilmStrip_SelectionChanged"
-                         PreviewMouseWheel="LstFilmStrip_PreviewMouseWheel"
-                         MouseDoubleClick="LstFilmStrip_MouseDoubleClick">
-                    <ListBox.ItemContainerStyle>
-                        <Style TargetType="ListBoxItem">
-                            <Setter Property="Padding" Value="0" />
-                            <Setter Property="Margin" Value="2" />
-                            <Setter Property="Background" Value="Transparent" />
-                            <Setter Property="BorderThickness" Value="2" />
-                            <Setter Property="BorderBrush" Value="Transparent" />
-                            <Setter Property="Cursor" Value="Hand" />
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="ListBoxItem">
-                                        <Border x:Name="Bd" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" Background="{TemplateBinding Background}" CornerRadius="2">
-                                            <ContentPresenter />
+                        <!-- ヘッダー -->
+                        <Grid Grid.Row="0" Background="#EBEBEB">
+                            <TextBlock Text="カット一覧 (Strips)" FontWeight="Bold" FontSize="11" VerticalAlignment="Center" Margin="6,0,0,0" Foreground="#222222" />
+                            <TextBlock x:Name="TxtCutSummary" Text="1 カット" FontSize="10" Foreground="#666666" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,6,0" />
+                        </Grid>
+
+                        <!-- カット一覧 ListBox -->
+                        <ListBox x:Name="LstCuts" Grid.Row="1" Background="#FFFFFF" BorderThickness="0"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                 SelectionChanged="LstCuts_SelectionChanged">
+                            <ListBox.ItemContainerStyle>
+                                <Style TargetType="ListBoxItem">
+                                    <Setter Property="Padding" Value="4,2" />
+                                    <Setter Property="Margin" Value="1,1" />
+                                    <Setter Property="Cursor" Value="Hand" />
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="ListBoxItem">
+                                                <Border x:Name="bd" Background="Transparent" BorderBrush="Transparent" BorderThickness="1" CornerRadius="2" Padding="{TemplateBinding Padding}">
+                                                    <ContentPresenter />
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsSelected" Value="True">
+                                                        <Setter TargetName="bd" Property="Background" Value="#CCE4F7" />
+                                                        <Setter TargetName="bd" Property="BorderBrush" Value="#0078D7" />
+                                                    </Trigger>
+                                                    <MultiTrigger>
+                                                        <MultiTrigger.Conditions>
+                                                            <Condition Property="IsMouseOver" Value="True" />
+                                                            <Condition Property="IsSelected" Value="False" />
+                                                        </MultiTrigger.Conditions>
+                                                        <Setter TargetName="bd" Property="Background" Value="#E5F1FB" />
+                                                    </MultiTrigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+                            </ListBox.ItemContainerStyle>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="1">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="11" Foreground="#111111" />
+                                            <TextBlock Text="{Binding FrameCountText}" FontSize="10" Foreground="#666666" />
+                                        </StackPanel>
+                                        <Border Grid.Column="1" Background="{Binding StatusColor}" CornerRadius="2" Padding="4,1" VerticalAlignment="Center" Margin="4,0,2,0">
+                                            <TextBlock Text="{Binding StatusText}" FontSize="9" FontWeight="Bold" Foreground="#FFFFFF" />
                                         </Border>
-                                        <ControlTemplate.Triggers>
-                                            <Trigger Property="IsSelected" Value="True">
-                                                <Setter TargetName="Bd" Property="BorderBrush" Value="#0078D7" />
-                                                <Setter TargetName="Bd" Property="Background" Value="#E5F1FB" />
-                                            </Trigger>
-                                            <MultiTrigger>
-                                                <MultiTrigger.Conditions>
-                                                    <Condition Property="IsMouseOver" Value="True" />
-                                                    <Condition Property="IsSelected" Value="False" />
-                                                </MultiTrigger.Conditions>
-                                                <Setter TargetName="Bd" Property="BorderBrush" Value="#B0D5F7" />
-                                                <Setter TargetName="Bd" Property="Background" Value="#F5F9FD" />
-                                            </MultiTrigger>
-                                        </ControlTemplate.Triggers>
-                                    </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
-                        </Style>
-                    </ListBox.ItemContainerStyle>
-                    <ListBox.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <VirtualizingStackPanel Orientation="Horizontal" />
-                        </ItemsPanelTemplate>
-                    </ListBox.ItemsPanel>
-                    <ListBox.ItemTemplate>
-                        <DataTemplate>
-                            <Border Padding="4" Width="98">
-                                <StackPanel HorizontalAlignment="Center">
-                                    <!-- コマ番号バッジ -->
-                                    <TextBlock Text="{Binding FrameNumber, StringFormat='Frame #{0}'}" FontWeight="Bold" FontSize="10" HorizontalAlignment="Center" Margin="0,0,0,2" />
-                                    <!-- サムネイル画像 -->
-                                    <Border BorderBrush="#999999" BorderThickness="1" Background="#111111" Width="88" Height="60">
-                                        <Image Source="{Binding Thumbnail}" Stretch="Uniform" />
-                                    </Border>
-                                    <TextBlock Text="{Binding CameraModel}" FontSize="9" Foreground="#666666" TextTrimming="CharacterEllipsis" HorizontalAlignment="Center" Margin="0,2,0,0" />
-                                </StackPanel>
-                            </Border>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+
+                        <!-- 下部ボタン: ＋ 次のカット, 削除 -->
+                        <Grid Grid.Row="2" Background="#F0F0F0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="42" />
+                            </Grid.ColumnDefinitions>
+                            <Button x:Name="BtnNewCut" Content="＋ 次のカット" Grid.Column="0" Height="22" Margin="2,3,1,3" FontWeight="SemiBold" FontSize="10" Click="BtnNewCut_Click" ToolTip="新しいカット（ストリップ）を追加してスキャン準備を行います" />
+                            <Button x:Name="BtnDeleteCut" Content="削除" Grid.Column="1" Height="22" Margin="1,3,2,3" FontSize="10" Click="BtnDeleteCut_Click" ToolTip="選択したカットを削除" />
+                        </Grid>
+                    </Grid>
+                </Border>
+
+                <!-- ========================================================== -->
+                <!-- 【右側】選択カットのコマ一覧                               -->
+                <!-- ========================================================== -->
+                <Grid Grid.Column="1">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="20" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <Grid Grid.Row="0">
+                        <TextBlock x:Name="TxtFilmstripHeader" Text="フィルムストリップ (Film Strip)" FontWeight="SemiBold" FontSize="11" VerticalAlignment="Center" />
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <TextBlock Text="※ダブルクリックで拡大・個別確認 / ホイール左右スクロール" FontSize="10" Foreground="#666666" VerticalAlignment="Center" Margin="0,0,8,0" />
+                        </StackPanel>
+                    </Grid>
+
+                    <ListBox x:Name="LstFilmStrip" Grid.Row="1" Background="#FFFFFF" BorderBrush="#C0C0C0" BorderThickness="1"
+                             ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                             SelectionChanged="LstFilmStrip_SelectionChanged"
+                             PreviewMouseWheel="LstFilmStrip_PreviewMouseWheel"
+                             MouseDoubleClick="LstFilmStrip_MouseDoubleClick">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Padding" Value="0" />
+                                <Setter Property="Margin" Value="2" />
+                                <Setter Property="Background" Value="Transparent" />
+                                <Setter Property="BorderThickness" Value="2" />
+                                <Setter Property="BorderBrush" Value="Transparent" />
+                                <Setter Property="Cursor" Value="Hand" />
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <Border x:Name="Bd" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" Background="{TemplateBinding Background}" CornerRadius="2">
+                                                <ContentPresenter />
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsSelected" Value="True">
+                                                    <Setter TargetName="Bd" Property="BorderBrush" Value="#0078D7" />
+                                                    <Setter TargetName="Bd" Property="Background" Value="#E5F1FB" />
+                                                </Trigger>
+                                                <MultiTrigger>
+                                                    <MultiTrigger.Conditions>
+                                                        <Condition Property="IsMouseOver" Value="True" />
+                                                        <Condition Property="IsSelected" Value="False" />
+                                                    </MultiTrigger.Conditions>
+                                                    <Setter TargetName="Bd" Property="BorderBrush" Value="#B0D5F7" />
+                                                    <Setter TargetName="Bd" Property="Background" Value="#F5F9FD" />
+                                                </MultiTrigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <VirtualizingStackPanel Orientation="Horizontal" />
+                            </ItemsPanelTemplate>
+                        </ListBox.ItemsPanel>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Border Padding="4" Width="98">
+                                    <StackPanel HorizontalAlignment="Center">
+                                        <!-- コマ番号バッジ -->
+                                        <TextBlock Text="{Binding FrameNumber, StringFormat='Frame #{0}'}" FontWeight="Bold" FontSize="10" HorizontalAlignment="Center" Margin="0,0,0,2" />
+                                        <!-- サムネイル画像 -->
+                                        <Border BorderBrush="#999999" BorderThickness="1" Background="#111111" Width="88" Height="60">
+                                            <Image Source="{Binding Thumbnail}" Stretch="Uniform" />
+                                        </Border>
+                                        <TextBlock Text="{Binding CameraModel}" FontSize="9" Foreground="#666666" TextTrimming="CharacterEllipsis" HorizontalAlignment="Center" Margin="0,2,0,0" />
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
             </Grid>
         </Border>
 
