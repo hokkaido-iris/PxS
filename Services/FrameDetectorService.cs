@@ -319,7 +319,7 @@ namespace IrisPxS.Services
 
             if (isVertical)
             {
-                int frameW = Math.Min(targetW, scanMat.Width - 4);
+                int frameW = targetW;
                 int frameH = targetH;
                 int gapH = Math.Max(4, pitchPx - frameH);
 
@@ -366,17 +366,17 @@ namespace IrisPxS.Services
                         Math.Max(0, (scanMat.Width - frameW) / 2),
                         Math.Max(0, (scanMat.Height - frameH) / 2),
                         frameW,
-                        Math.Min(frameH, scanMat.Height)));
+                        frameH));
                 }
 
-                // 6. 等間隔配置をベースにしつつ、各コマ周辺の画像境界（エッジ・投影プロファイル）を検出して自動微調整
+                // 6. 等間隔配置をベースにしつつ、各コマ周辺の画像境界（エッジ・投影プロファイル）を検出して位置のみ自動微調整 (寸法・比率は不変)
                 frames = RefineFrameBoundaries(scanMat, frames, format, isVertical: true, frameW, frameH, pitchPx, parameters);
             }
             else
             {
                 // 横ストリップ
                 int frameW = targetW;
-                int frameH = Math.Min(targetH, scanMat.Height - 4);
+                int frameH = targetH;
                 int gapW = Math.Max(4, pitchPx - frameW);
 
                 var (filmTop, filmBottom) = DetectFilmVerticalEdges(scanMat, expectedStripPx);
@@ -413,11 +413,11 @@ namespace IrisPxS.Services
                     frames.Add(new OpenCvSharp.Rect(
                         Math.Max(0, (scanMat.Width - frameW) / 2),
                         Math.Max(0, (scanMat.Height - frameH) / 2),
-                        Math.Min(frameW, scanMat.Width),
+                        frameW,
                         frameH));
                 }
 
-                // 6. 等間隔配置をベースにしつつ、各コマ周辺の画像境界（エッジ・投影プロファイル）を検出して自動微調整
+                // 6. 等間隔配置をベースにしつつ、各コマ周辺の画像境界（エッジ・投影プロファイル）を検出して位置のみ自動微調整 (寸法・比率は不変)
                 frames = RefineFrameBoundaries(scanMat, frames, format, isVertical: false, frameW, frameH, pitchPx, parameters);
             }
 
@@ -828,7 +828,9 @@ namespace IrisPxS.Services
                 int searchWinX = Math.Max(15, (int)(targetW * 0.12));
 
                 // 1. 各コマの長手方向（Top, Bottom）の境界を局所プロファイル勾配で探索
-                var refinedRangesY = new List<(int Top, int Bottom, bool Success)>();
+                // ※重要: カメラのアパーチャゲートは剛体金属板のため、コマサイズ(targetW, targetH)およびアスペクト比は物理的に完全に不変。
+                // 探索されたエッジはコマの中心位置 (Center Y) の微調整にのみ使用し、幅・高さ・比率は100%固定とする。
+                var refinedTops = new List<int>();
 
                 for (int i = 0; i < baseFrames.Count; i++)
                 {
@@ -891,53 +893,60 @@ namespace IrisPxS.Services
                     bool botConfident = maxBotGrad >= p.MinEdgeGradientThreshold;
 
                     int finalTop = baseTop;
-                    int finalBot = baseBot;
 
-                    if (topConfident && botConfident && detectedBot > detectedTop + (int)(targetH * 0.70))
+                    if (topConfident && botConfident)
+                    {
+                        int span = detectedBot - detectedTop;
+                        if (Math.Abs(span - targetH) <= (targetH * p.DimensionTolerance))
+                        {
+                            // 上下両端のエッジが見つかり、間隔が規格高さに近い場合: 中心位置から配置 (寸法 targetH は固定不変)
+                            double centerY = (detectedTop + detectedBot) / 2.0;
+                            finalTop = (int)Math.Round(centerY - targetH / 2.0);
+                        }
+                        else if (maxTopGrad >= maxBotGrad)
+                        {
+                            finalTop = detectedTop;
+                        }
+                        else
+                        {
+                            finalTop = detectedBot - targetH;
+                        }
+                    }
+                    else if (topConfident)
                     {
                         finalTop = detectedTop;
-                        finalBot = detectedBot;
                     }
-                    else if (topConfident && !botConfident)
+                    else if (botConfident)
                     {
-                        finalTop = detectedTop;
-                        finalBot = Math.Min(scanMat.Height, detectedTop + targetH);
-                    }
-                    else if (!topConfident && botConfident)
-                    {
-                        finalBot = detectedBot;
-                        finalTop = Math.Max(0, detectedBot - targetH);
+                        finalTop = detectedBot - targetH;
                     }
 
-                    // 幾何学的ヒューリスティクス検証: コマ高が理論値の許容範囲内か
-                    int frameH = finalBot - finalTop;
-                    bool sizeValid = Math.Abs(frameH - targetH) <= (targetH * p.DimensionTolerance);
+                    // 理論ベース位置からの乖離が大きすぎる場合はフェイルセーフで理論位置へ
+                    if (Math.Abs(finalTop - baseTop) > searchWinY * 1.5)
+                    {
+                        finalTop = baseTop;
+                    }
 
-                    if (sizeValid)
-                    {
-                        refinedRangesY.Add((finalTop, finalBot, true));
-                    }
-                    else
-                    {
-                        // 検証不合格時は理論ベース位置にフェイルセーフ
-                        refinedRangesY.Add((baseTop, baseBot, false));
-                    }
+                    refinedTops.Add(finalTop);
                 }
 
                 // 2. 幅方向（X軸）の最適化:
-                // カメラの露光ゲート幅は全コマ共通のため、信頼性の高いコマ群の中央値から X と Width を決定
+                // カメラの露光ゲート幅は全コマ共通のため、信頼性の高いコマ群の中央値から X を決定
                 int bestX = baseFrames[0].X;
-                int bestW = targetW;
 
                 var xOffsets = new List<int>();
                 for (int i = 0; i < baseFrames.Count; i++)
                 {
                     var r = baseFrames[i];
-                    var (top, bot, _) = refinedRangesY[i];
-                    int midH = bot - top;
+                    int top = refinedTops[i];
+                    int midH = targetH;
                     if (midH < 30) continue;
 
-                    using var frameMidRoi = new Mat(gray, new OpenCvSharp.Rect(0, top + (int)(midH * 0.15), scanMat.Width, (int)(midH * 0.70)));
+                    int roiY = Math.Max(0, top + (int)(midH * 0.15));
+                    int roiH = Math.Min(scanMat.Height - roiY, (int)(midH * 0.70));
+                    if (roiH < 10) continue;
+
+                    using var frameMidRoi = new Mat(gray, new OpenCvSharp.Rect(0, roiY, scanMat.Width, roiH));
                     using var rowMeanX = new Mat();
                     Cv2.Reduce(frameMidRoi, rowMeanX, ReduceDimension.Row, ReduceTypes.Avg, MatType.CV_32F);
                     float[] rowValsX = new float[scanMat.Width];
@@ -968,8 +977,18 @@ namespace IrisPxS.Services
                         int span = detectedRightX - detectedLeftX;
                         if (Math.Abs(span - targetW) <= targetW * p.DimensionTolerance)
                         {
-                            xOffsets.Add(detectedLeftX);
+                            double centerX = (detectedLeftX + detectedRightX) / 2.0;
+                            int optLeft = (int)Math.Round(centerX - targetW / 2.0);
+                            xOffsets.Add(optLeft);
                         }
+                    }
+                    else if (maxLeftGrad >= p.MinEdgeGradientThreshold)
+                    {
+                        xOffsets.Add(detectedLeftX);
+                    }
+                    else if (maxRightGrad >= p.MinEdgeGradientThreshold)
+                    {
+                        xOffsets.Add(detectedRightX - targetW);
                     }
                 }
 
@@ -979,28 +998,24 @@ namespace IrisPxS.Services
                     bestX = xOffsets[xOffsets.Count / 2]; // 中央値
                 }
 
-                // 3. 最終矩形の組み立て & コマ間重なり防止
+                // 3. 最終矩形の組み立て & コマ間重なり防止 (幅・高さ・比率は画像認識によって不変、デフォルト比率を維持)
+                int fixedW = Math.Min(targetW, scanMat.Width);
+                int fixedH = Math.Min(targetH, scanMat.Height);
+                int clampedX = Math.Max(0, Math.Min(bestX, scanMat.Width - fixedW));
+
                 int prevBot = -1;
                 for (int i = 0; i < baseFrames.Count; i++)
                 {
-                    var (top, bot, _) = refinedRangesY[i];
+                    int top = refinedTops[i];
                     if (prevBot >= 0 && top < prevBot + 2)
                     {
                         top = prevBot + 2;
                     }
-                    if (bot <= top + 20)
-                    {
-                        bot = top + targetH;
-                    }
 
-                    int clampedTop = Math.Max(0, Math.Min(top, scanMat.Height - 10));
-                    int clampedBot = Math.Min(scanMat.Height, Math.Max(clampedTop + 10, bot));
-                    int clampedX = Math.Max(0, Math.Min(bestX, scanMat.Width - bestW));
-                    int clampedW = Math.Min(bestW, scanMat.Width - clampedX);
-                    int clampedH = clampedBot - clampedTop;
+                    int clampedTop = Math.Max(0, Math.Min(top, scanMat.Height - fixedH));
 
-                    refinedList.Add(new OpenCvSharp.Rect(clampedX, clampedTop, clampedW, clampedH));
-                    prevBot = clampedBot;
+                    refinedList.Add(new OpenCvSharp.Rect(clampedX, clampedTop, fixedW, fixedH));
+                    prevBot = clampedTop + fixedH;
                 }
             }
             else
@@ -1009,7 +1024,9 @@ namespace IrisPxS.Services
                 int searchWinX = Math.Max(25, (int)(pitchPx * p.SearchWindowPitchRatio));
                 int searchWinY = Math.Max(15, (int)(targetH * 0.12));
 
-                var refinedRangesX = new List<(int Left, int Right, bool Success)>();
+                // 1. 各コマの長手方向（Left, Right）の境界を局所プロファイル勾配で探索
+                // ※重要: コマサイズ(targetW, targetH)およびアスペクト比は物理的に完全に不変。
+                var refinedLefts = new List<int>();
 
                 for (int i = 0; i < baseFrames.Count; i++)
                 {
@@ -1071,50 +1088,58 @@ namespace IrisPxS.Services
                     bool rightConfident = maxRightGrad >= p.MinEdgeGradientThreshold;
 
                     int finalLeft = baseLeft;
-                    int finalRight = baseRight;
 
-                    if (leftConfident && rightConfident && detectedRight > detectedLeft + (int)(targetW * 0.70))
+                    if (leftConfident && rightConfident)
+                    {
+                        int span = detectedRight - detectedLeft;
+                        if (Math.Abs(span - targetW) <= (targetW * p.DimensionTolerance))
+                        {
+                            // 左右両端のエッジが見つかり、間隔が規格幅に近い場合: 中心位置から配置 (寸法 targetW は固定不変)
+                            double centerX = (detectedLeft + detectedRight) / 2.0;
+                            finalLeft = (int)Math.Round(centerX - targetW / 2.0);
+                        }
+                        else if (maxLeftGrad >= maxRightGrad)
+                        {
+                            finalLeft = detectedLeft;
+                        }
+                        else
+                        {
+                            finalLeft = detectedRight - targetW;
+                        }
+                    }
+                    else if (leftConfident)
                     {
                         finalLeft = detectedLeft;
-                        finalRight = detectedRight;
                     }
-                    else if (leftConfident && !rightConfident)
+                    else if (rightConfident)
                     {
-                        finalLeft = detectedLeft;
-                        finalRight = Math.Min(scanMat.Width, detectedLeft + targetW);
-                    }
-                    else if (!leftConfident && rightConfident)
-                    {
-                        finalRight = detectedRight;
-                        finalLeft = Math.Max(0, detectedRight - targetW);
+                        finalLeft = detectedRight - targetW;
                     }
 
-                    int frameW = finalRight - finalLeft;
-                    bool sizeValid = Math.Abs(frameW - targetW) <= (targetW * p.DimensionTolerance);
+                    if (Math.Abs(finalLeft - baseLeft) > searchWinX * 1.5)
+                    {
+                        finalLeft = baseLeft;
+                    }
 
-                    if (sizeValid)
-                    {
-                        refinedRangesX.Add((finalLeft, finalRight, true));
-                    }
-                    else
-                    {
-                        refinedRangesX.Add((baseLeft, baseRight, false));
-                    }
+                    refinedLefts.Add(finalLeft);
                 }
 
                 // 幅方向（Y軸）の最適化
                 int bestY = baseFrames[0].Y;
-                int bestH = targetH;
 
                 var yOffsets = new List<int>();
                 for (int i = 0; i < baseFrames.Count; i++)
                 {
                     var r = baseFrames[i];
-                    var (left, right, _) = refinedRangesX[i];
-                    int midW = right - left;
+                    int left = refinedLefts[i];
+                    int midW = targetW;
                     if (midW < 30) continue;
 
-                    using var frameMidRoi = new Mat(gray, new OpenCvSharp.Rect(left + (int)(midW * 0.15), 0, (int)(midW * 0.70), scanMat.Height));
+                    int roiX = Math.Max(0, left + (int)(midW * 0.15));
+                    int roiW = Math.Min(scanMat.Width - roiX, (int)(midW * 0.70));
+                    if (roiW < 10) continue;
+
+                    using var frameMidRoi = new Mat(gray, new OpenCvSharp.Rect(roiX, 0, roiW, scanMat.Height));
                     using var colMeanY = new Mat();
                     Cv2.Reduce(frameMidRoi, colMeanY, ReduceDimension.Column, ReduceTypes.Avg, MatType.CV_32F);
                     float[] colValsY = new float[scanMat.Height];
@@ -1145,8 +1170,18 @@ namespace IrisPxS.Services
                         int span = detectedBotY - detectedTopY;
                         if (Math.Abs(span - targetH) <= targetH * p.DimensionTolerance)
                         {
-                            yOffsets.Add(detectedTopY);
+                            double centerY = (detectedTopY + detectedBotY) / 2.0;
+                            int optTop = (int)Math.Round(centerY - targetH / 2.0);
+                            yOffsets.Add(optTop);
                         }
+                    }
+                    else if (maxTopGrad >= p.MinEdgeGradientThreshold)
+                    {
+                        yOffsets.Add(detectedTopY);
+                    }
+                    else if (maxBotGrad >= p.MinEdgeGradientThreshold)
+                    {
+                        yOffsets.Add(detectedBotY - targetH);
                     }
                 }
 
@@ -1156,27 +1191,24 @@ namespace IrisPxS.Services
                     bestY = yOffsets[yOffsets.Count / 2];
                 }
 
+                // 3. 最終矩形の組み立て & コマ間重なり防止 (幅・高さ・比率は画像認識によって不変、デフォルト比率を維持)
+                int fixedW = Math.Min(targetW, scanMat.Width);
+                int fixedH = Math.Min(targetH, scanMat.Height);
+                int clampedY = Math.Max(0, Math.Min(bestY, scanMat.Height - fixedH));
+
                 int prevRight = -1;
                 for (int i = 0; i < baseFrames.Count; i++)
                 {
-                    var (left, right, _) = refinedRangesX[i];
+                    int left = refinedLefts[i];
                     if (prevRight >= 0 && left < prevRight + 2)
                     {
                         left = prevRight + 2;
                     }
-                    if (right <= left + 20)
-                    {
-                        right = left + targetW;
-                    }
 
-                    int clampedLeft = Math.Max(0, Math.Min(left, scanMat.Width - 10));
-                    int clampedRight = Math.Min(scanMat.Width, Math.Max(clampedLeft + 10, right));
-                    int clampedY = Math.Max(0, Math.Min(bestY, scanMat.Height - bestH));
-                    int clampedH = Math.Min(bestH, scanMat.Height - clampedY);
-                    int clampedW = clampedRight - clampedLeft;
+                    int clampedLeft = Math.Max(0, Math.Min(left, scanMat.Width - fixedW));
 
-                    refinedList.Add(new OpenCvSharp.Rect(clampedLeft, clampedY, clampedW, clampedH));
-                    prevRight = clampedRight;
+                    refinedList.Add(new OpenCvSharp.Rect(clampedLeft, clampedY, fixedW, fixedH));
+                    prevRight = clampedLeft + fixedW;
                 }
             }
 

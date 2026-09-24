@@ -41,11 +41,23 @@ namespace IrisPxS
             var format = FilmFormat.GetPresetFormats()[0]; // 135 Full-Frame
             var (straightenedMat, skewAngle, detectedFrames) = detectorService.DetectAndStraighten(colorMat, format, 300);
             Console.WriteLine($"直立画像検知傾き角: {skewAngle:F2}°, 検出コマ数: {detectedFrames.Count}");
+            FrameDetectorService.GetFormatDimensions(format, straightenedMat.Height >= straightenedMat.Width, 300, out int expW, out int expH, out _);
+            double expectedAspect = (double)expH / expW;
             for (int i = 0; i < detectedFrames.Count; i++)
             {
                 var r = detectedFrames[i];
                 Console.WriteLine($"  コマ #{i + 1}: X={r.X}, Y={r.Y}, W={r.Width}, H={r.Height}, Aspect={((double)r.Height / r.Width):F2}");
+                if (r.Width != expW || r.Height != expH)
+                {
+                    throw new Exception($"[FAIL] コマ寸法が不一致: 期待値 W={expW}, H={expH} に対し 実際 W={r.Width}, H={r.Height}");
+                }
+                double aspect = (double)r.Height / r.Width;
+                if (Math.Abs(aspect - expectedAspect) > 1e-4)
+                {
+                    throw new Exception($"[FAIL] アスペクト比がデフォルト値と不一致: 期待値 {expectedAspect:F4} に対し 実際 {aspect:F4}");
+                }
             }
+            Console.WriteLine($"  => 全 {detectedFrames.Count} コマの比率は完全に不変であり、デフォルト比率 ({expectedAspect:F2}: W={expW}, H={expH}) を維持しています。[PASS]");
 
             // 実スキャン画像 (real_scan.bmp) がある場合の高精度検証
             string realScanPath = @"C:\Users\tarui\.gemini\antigravity-ide\scratch\real_scan.bmp";
@@ -58,21 +70,45 @@ namespace IrisPxS
                 // 1. 135 Full-Frame 自動認識テスト (等間隔ベースグリッド ＋ 局所エッジ・プロファイル自動微調整)
                 var (straight135, skew135, frames135) = detectorService.DetectAndStraighten(realMat, format, 300);
                 Console.WriteLine($"\n[135-FF] 検知傾き角: {skew135:F2}°, 検出コマ数: {frames135.Count}");
+                FrameDetectorService.GetFormatDimensions(format, straight135.Height >= straight135.Width, 300, out int expW135, out int expH135, out _);
+                double expAspect135 = (double)expH135 / expW135;
                 for (int i = 0; i < frames135.Count; i++)
                 {
                     var r = frames135[i];
                     Console.WriteLine($"  135微調整コマ #{i + 1}: X={r.X}, Y={r.Y}, W={r.Width}, H={r.Height} (Y範囲: {r.Y}〜{r.Y + r.Height}, Aspect={(double)r.Height / r.Width:F2})");
+                    if (r.Width != expW135 || r.Height != expH135)
+                    {
+                        throw new Exception($"[FAIL] 135コマ寸法が不一致: 期待値 W={expW135}, H={expH135} に対し 実際 W={r.Width}, H={r.Height}");
+                    }
+                    double aspect = (double)r.Height / r.Width;
+                    if (Math.Abs(aspect - expAspect135) > 1e-4)
+                    {
+                        throw new Exception($"[FAIL] 135アスペクト比がデフォルト値と不一致: 期待値 {expAspect135:F4} に対し 実際 {aspect:F4}");
+                    }
                 }
+                Console.WriteLine($"  => [135-FF] 全 {frames135.Count} コマの比率は完全に不変であり、デフォルト比率 ({expAspect135:F2}: W={expW135}, H={expH135}) を維持しています。[PASS]");
 
                 // 2. 110 General 自動認識テスト
                 var format110 = FilmFormat.GetAllFormats().First(f => f.Type == FilmFormatType.Format110_General);
                 var (straight110, skew110, frames110) = detectorService.DetectAndStraighten(realMat, format110, 300);
                 Console.WriteLine($"\n[110-General] 検知傾き角: {skew110:F2}°, 検出コマ数: {frames110.Count}");
+                FrameDetectorService.GetFormatDimensions(format110, straight110.Height >= straight110.Width, 300, out int expW110, out int expH110, out _);
+                double expAspect110 = (double)expH110 / expW110;
                 for (int i = 0; i < frames110.Count; i++)
                 {
                     var r = frames110[i];
-                    Console.WriteLine($"  110コマ #{i + 1}: X={r.X}, Y={r.Y}, W={r.Width}, H={r.Height} (Y範囲: {r.Y}〜{r.Y + r.Height})");
+                    Console.WriteLine($"  110コマ #{i + 1}: X={r.X}, Y={r.Y}, W={r.Width}, H={r.Height} (Y範囲: {r.Y}〜{r.Y + r.Height}, Aspect={(double)r.Height / r.Width:F2})");
+                    if (r.Width != expW110 || r.Height != expH110)
+                    {
+                        throw new Exception($"[FAIL] 110コマ寸法が不一致: 期待値 W={expW110}, H={expH110} に対し 実際 W={r.Width}, H={r.Height}");
+                    }
+                    double aspect = (double)r.Height / r.Width;
+                    if (Math.Abs(aspect - expAspect110) > 1e-4)
+                    {
+                        throw new Exception($"[FAIL] 110アスペクト比がデフォルト値と不一致: 期待値 {expAspect110:F4} に対し 実際 {aspect:F4}");
+                    }
                 }
+                Console.WriteLine($"  => [110-General] 全 {frames110.Count} コマの比率は完全に不変であり、デフォルト比率 ({expAspect110:F2}: W={expW110}, H={expH110}) を維持しています。[PASS]");
             }
 
             // フィルムとメディアなし部分のコントラストによる大角度傾き検出テスト (+2.5度, +6.5度, -8.5度)
