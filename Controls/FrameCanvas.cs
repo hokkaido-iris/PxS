@@ -20,6 +20,26 @@ namespace IrisPxS.Controls
             set => SetValue(ImageSourceProperty, value);
         }
 
+        public static readonly DependencyProperty LogicalImageWidthProperty =
+            DependencyProperty.Register(nameof(LogicalImageWidth), typeof(int), typeof(FrameCanvas),
+                new FrameworkPropertyMetadata(0, FrameworkPropertyMetadataOptions.AffectsRender, (d, e) => (d as FrameCanvas)?.ResetView()));
+
+        public int LogicalImageWidth
+        {
+            get => (int)GetValue(LogicalImageWidthProperty);
+            set => SetValue(LogicalImageWidthProperty, value);
+        }
+
+        public static readonly DependencyProperty LogicalImageHeightProperty =
+            DependencyProperty.Register(nameof(LogicalImageHeight), typeof(int), typeof(FrameCanvas),
+                new FrameworkPropertyMetadata(0, FrameworkPropertyMetadataOptions.AffectsRender, (d, e) => (d as FrameCanvas)?.ResetView()));
+
+        public int LogicalImageHeight
+        {
+            get => (int)GetValue(LogicalImageHeightProperty);
+            set => SetValue(LogicalImageHeightProperty, value);
+        }
+
         public static readonly DependencyProperty FramesProperty =
             DependencyProperty.Register(nameof(Frames), typeof(ObservableCollection<FilmFrame>), typeof(FrameCanvas),
                 new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender, OnFramesChanged));
@@ -110,12 +130,16 @@ namespace IrisPxS.Controls
         {
             if (ImageSource == null || ActualWidth <= 0 || ActualHeight <= 0) return;
 
-            double scaleX = ActualWidth / ImageSource.PixelWidth;
-            double scaleY = ActualHeight / ImageSource.PixelHeight;
+            int logicalW = LogicalImageWidth > 0 ? LogicalImageWidth : ImageSource.PixelWidth;
+            int logicalH = LogicalImageHeight > 0 ? LogicalImageHeight : ImageSource.PixelHeight;
+            if (logicalW <= 0 || logicalH <= 0) return;
+
+            double scaleX = ActualWidth / logicalW;
+            double scaleY = ActualHeight / logicalH;
             _scale = Math.Min(scaleX, scaleY) * 0.95;
 
-            double renderedW = ImageSource.PixelWidth * _scale;
-            double renderedH = ImageSource.PixelHeight * _scale;
+            double renderedW = logicalW * _scale;
+            double renderedH = logicalH * _scale;
             _panOffset = new Point((ActualWidth - renderedW) / 2, (ActualHeight - renderedH) / 2);
 
             InvalidateVisual();
@@ -150,8 +174,10 @@ namespace IrisPxS.Controls
                 return;
             }
 
-            // 画像の描画 (拡大縮小・パン適用)
-            var imgRect = new System.Windows.Rect(_panOffset.X, _panOffset.Y, ImageSource.PixelWidth * _scale, ImageSource.PixelHeight * _scale);
+            // 画像の描画 (論理サイズに合わせた拡大縮小・パン適用)
+            int logicalW = LogicalImageWidth > 0 ? LogicalImageWidth : ImageSource.PixelWidth;
+            int logicalH = LogicalImageHeight > 0 ? LogicalImageHeight : ImageSource.PixelHeight;
+            var imgRect = new System.Windows.Rect(_panOffset.X, _panOffset.Y, logicalW * _scale, logicalH * _scale);
             dc.DrawImage(ImageSource, imgRect);
 
             // コマ枠オーバーレイの描画
@@ -503,8 +529,14 @@ namespace IrisPxS.Controls
         {
             if (ImageSource == null) return;
 
-            int imgX = (int)((screenPos.X - _panOffset.X) / _scale);
-            int imgY = (int)((screenPos.Y - _panOffset.Y) / _scale);
+            int logicalW = LogicalImageWidth > 0 ? LogicalImageWidth : ImageSource.PixelWidth;
+            int logicalH = LogicalImageHeight > 0 ? LogicalImageHeight : ImageSource.PixelHeight;
+
+            int logicalX = (int)((screenPos.X - _panOffset.X) / _scale);
+            int logicalY = (int)((screenPos.Y - _panOffset.Y) / _scale);
+
+            int imgX = (int)(logicalX * ((double)ImageSource.PixelWidth / logicalW));
+            int imgY = (int)(logicalY * ((double)ImageSource.PixelHeight / logicalH));
 
             if (imgX >= 0 && imgX < ImageSource.PixelWidth && imgY >= 0 && imgY < ImageSource.PixelHeight)
             {

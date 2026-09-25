@@ -30,6 +30,7 @@ namespace IrisPxS
 
         private Mat? _currentScanMat = null;
         private Mat? _currentIrMat = null;
+        private string? _currentLoadedScanPath = null;
         private bool _isUpdatingUi = false;
 
         public MainWindow()
@@ -314,7 +315,8 @@ namespace IrisPxS
                     _currentRoll.Strips.Add(_currentStrip);
                     LstCuts.SelectedItem = _currentStrip;
                 }
-                ApplyScanDataToCut(_currentStrip, colorMat, irMat, 2400, isPreScan: false);
+                int dpi = GetSelectedScanDpi();
+                ApplyScanDataToCut(_currentStrip, colorMat, irMat, dpi, isPreScan: false);
             }
             catch (OperationCanceledException)
             {
@@ -376,6 +378,36 @@ namespace IrisPxS
             SetScannerStatus(isScanning ? ScannerState.Busy : ScannerState.Ready, isScanning ? "Scanning..." : "Ready");
         }
 
+        private void UpdateScanCanvasImage(Mat? mat)
+        {
+            if (mat == null || mat.IsDisposed)
+            {
+                ScanCanvas.ImageSource = null;
+                ScanCanvas.LogicalImageWidth = 0;
+                ScanCanvas.LogicalImageHeight = 0;
+                return;
+            }
+
+            ScanCanvas.LogicalImageWidth = mat.Width;
+            ScanCanvas.LogicalImageHeight = mat.Height;
+
+            // 長辺が3000pxを超える高解像度画像の場合、UI描画用の軽量プレビュー（長辺2860px）を生成してWIC/RAMを劇的削減（800MB -> ~6MB）
+            int maxDim = Math.Max(mat.Width, mat.Height);
+            if (maxDim > 3000)
+            {
+                double scale = 2860.0 / maxDim;
+                int previewW = (int)Math.Round(mat.Width * scale);
+                int previewH = (int)Math.Round(mat.Height * scale);
+                using var previewMat = new Mat();
+                Cv2.Resize(mat, previewMat, new OpenCvSharp.Size(previewW, previewH), 0, 0, InterpolationFlags.Area);
+                ScanCanvas.ImageSource = previewMat.ToBitmapSource();
+            }
+            else
+            {
+                ScanCanvas.ImageSource = mat.ToBitmapSource();
+            }
+        }
+
         private void ApplyScanDataToCut(FilmStrip strip, Mat colorMat, Mat? irMat, int dpi, bool isPreScan)
         {
             _isUpdatingUi = true;
@@ -384,25 +416,42 @@ namespace IrisPxS
                 if (_currentScanMat != null && !_currentScanMat.IsDisposed)
                 {
                     _currentScanMat.Dispose();
+                    _currentScanMat = null;
                 }
                 if (_currentIrMat != null && !_currentIrMat.IsDisposed)
                 {
                     _currentIrMat.Dispose();
+                    _currentIrMat = null;
                 }
 
-                _currentScanMat = colorMat.Clone();
-                _currentIrMat = irMat?.Clone();
+                // クローンせず直接所有権を引き継いでRAM消費を半減
+                _currentScanMat = colorMat;
+                _currentIrMat = irMat;
 
-                int oldDpi = strip.ScanDpi > 0 ? strip.ScanDpi : 300;
-                strip.ScanDpi = dpi;
-                strip.ScannedAt = DateTime.Now;
+                // 本スキャンの場合、PreScanで検知された傾き角度を自動適用して正立補正
+                if (!isPreScan && Math.Abs(strip.SkewAngle) >= 0.1)
+                {
+                    var straight = _detectorService.StraightenImage(_currentScanMat, strip.SkewAngle);
+                    _currentScanMat.Dispose();
+                    _currentScanMat = straight;
+
+                    if (_currentIrMat != null && !_currentIrMat.IsDisposed)
+                    {
+                        var straightIr = _detectorService.StraightenImage(_currentIrMat, strip.SkewAngle);
+                        _currentIrMat.Dispose();
+                        _currentIrMat = straightIr;
+                    }
+                }
 
                 var (rawPath, irPath) = _sessionService.SaveStripImages(_currentRoll.SessionId, strip.Id, _currentScanMat, _currentIrMat);
                 strip.FullScanImagePath = rawPath;
                 strip.FullScanIrPath = irPath;
+                _currentLoadedScanPath = rawPath;
+                strip.ScanDpi = dpi;
+                strip.ScannedAt = DateTime.Now;
 
-                // スキャン原稿画像を表示
-                ScanCanvas.ImageSource = _currentScanMat.ToBitmapSource();
+                // UIプレビュー表示（ダウンサンプリング適用）
+                UpdateScanCanvasImage(_currentScanMat);
 
                 if (isPreScan)
                 {
@@ -414,43 +463,47 @@ namespace IrisPxS
                 else
                 {
                     // 本スキャン:
-                    // すでに PreScan 時のコマ枠がある場合は、解像度比率で拡大スケーリングして引き継ぐ
-                    if (strip.Frames.Count > 0 && oldDpi != dpi && oldDpi > 0)
+                    // 既存のコマ枠（PreScanや微調整結果）がある場合、絶対に初期化せず解像度比率で拡大スケーリングして完全保持
+                    if (strip.Frames.Count > 0)
                     {
-                        double scale = (double)dpi / oldDpi;
-                        foreach (var f in strip.Frames)
+                        int sourceDpi = strip.FrameCoordinatesDpi > 0 ? strip.FrameCoordinatesDpi : 300;
+                        if (sourceDpi != dpi)
                         {
-                            var r = f.CropRect;
-                            int sx = (int)Math.Round(r.X * scale);
-                            int sy = (int)Math.Round(r.Y * scale);
-                            int sw = (int)Math.Round(r.Width * scale);
-                            int sh = (int)Math.Round(r.Height * scale);
+                            double scale = (double)dpi / sourceDpi;
+                            foreach (var f in strip.Frames)
+                            {
+                                var r = f.CropRect;
+                                int sx = (int)Math.Round(r.X * scale);
+                                int sy = (int)Math.Round(r.Y * scale);
+                                int sw = (int)Math.Round(r.Width * scale);
+                                int sh = (int)Math.Round(r.Height * scale);
 
-                            sx = Math.Max(0, Math.Min(sx, _currentScanMat.Width - 10));
-                            sy = Math.Max(0, Math.Min(sy, _currentScanMat.Height - 10));
-                            sw = Math.Min(sw, _currentScanMat.Width - sx);
-                            sh = Math.Min(sh, _currentScanMat.Height - sy);
+                                sx = Math.Max(0, Math.Min(sx, _currentScanMat.Width - 10));
+                                sy = Math.Max(0, Math.Min(sy, _currentScanMat.Height - 10));
+                                sw = Math.Min(sw, _currentScanMat.Width - sx);
+                                sh = Math.Min(sh, _currentScanMat.Height - sy);
 
-                            f.CropRect = new OpenCvSharp.Rect(sx, sy, sw, sh);
-                            f.RawImagePath = strip.FullScanImagePath;
-                            f.IrImagePath = strip.FullScanIrPath;
-                            UpdateFrameThumbnail(f);
+                                f.CropRect = new OpenCvSharp.Rect(sx, sy, sw, sh);
+                                f.RawImagePath = strip.FullScanImagePath;
+                                f.IrImagePath = strip.FullScanIrPath;
+                                UpdateFrameThumbnail(f);
+                            }
                         }
-                    }
-                    else if (strip.Frames.Count == 0)
-                    {
-                        // PreScan なしで直接 Scan された場合は自動認識
-                        PerformAutoDetectFramesOnStrip(strip, _currentScanMat, _currentIrMat);
+                        else
+                        {
+                            foreach (var f in strip.Frames)
+                            {
+                                f.RawImagePath = strip.FullScanImagePath;
+                                f.IrImagePath = strip.FullScanIrPath;
+                                UpdateFrameThumbnail(f);
+                            }
+                        }
+                        strip.FrameCoordinatesDpi = dpi;
                     }
                     else
                     {
-                        // 同一DPIの場合はサムネイル更新
-                        foreach (var f in strip.Frames)
-                        {
-                            f.RawImagePath = strip.FullScanImagePath;
-                            f.IrImagePath = strip.FullScanIrPath;
-                            UpdateFrameThumbnail(f);
-                        }
+                        // コマ枠が未登録の場合のみ自動認識を実行
+                        PerformAutoDetectFramesOnStrip(strip, _currentScanMat, _currentIrMat);
                     }
 
                     strip.Status = StripStatus.Scanned;
@@ -459,6 +512,10 @@ namespace IrisPxS
 
                 SyncAllFramesFromStrips();
                 SelectCut(strip);
+
+                // ガベージコレクションを強制実行して中間バッファ・DirectXメモリを即時回収
+                GC.Collect(2, GCCollectionMode.Forced, true);
+                GC.WaitForPendingFinalizers();
             }
             finally
             {
@@ -956,21 +1013,25 @@ namespace IrisPxS
             // スキャン画像が存在すればロードして ScanCanvas に表示
             if (!string.IsNullOrEmpty(strip.FullScanImagePath) && File.Exists(strip.FullScanImagePath))
             {
-                if (_currentScanMat != null && !_currentScanMat.IsDisposed) _currentScanMat.Dispose();
-                _currentScanMat = Cv2.ImRead(strip.FullScanImagePath);
-
-                if (!string.IsNullOrEmpty(strip.FullScanIrPath) && File.Exists(strip.FullScanIrPath))
+                if (_currentScanMat == null || _currentScanMat.IsDisposed || _currentLoadedScanPath != strip.FullScanImagePath)
                 {
-                    if (_currentIrMat != null && !_currentIrMat.IsDisposed) _currentIrMat.Dispose();
-                    _currentIrMat = Cv2.ImRead(strip.FullScanIrPath);
-                }
-                else
-                {
-                    if (_currentIrMat != null && !_currentIrMat.IsDisposed) _currentIrMat.Dispose();
-                    _currentIrMat = null;
+                    if (_currentScanMat != null && !_currentScanMat.IsDisposed) _currentScanMat.Dispose();
+                    _currentScanMat = Cv2.ImRead(strip.FullScanImagePath);
+                    _currentLoadedScanPath = strip.FullScanImagePath;
+
+                    if (!string.IsNullOrEmpty(strip.FullScanIrPath) && File.Exists(strip.FullScanIrPath))
+                    {
+                        if (_currentIrMat != null && !_currentIrMat.IsDisposed) _currentIrMat.Dispose();
+                        _currentIrMat = Cv2.ImRead(strip.FullScanIrPath);
+                    }
+                    else
+                    {
+                        if (_currentIrMat != null && !_currentIrMat.IsDisposed) _currentIrMat.Dispose();
+                        _currentIrMat = null;
+                    }
                 }
 
-                ScanCanvas.ImageSource = _currentScanMat.ToBitmapSource();
+                UpdateScanCanvasImage(_currentScanMat);
             }
             else
             {
@@ -978,7 +1039,8 @@ namespace IrisPxS
                 _currentScanMat = null;
                 if (_currentIrMat != null && !_currentIrMat.IsDisposed) _currentIrMat.Dispose();
                 _currentIrMat = null;
-                ScanCanvas.ImageSource = null;
+                _currentLoadedScanPath = null;
+                UpdateScanCanvasImage(null);
             }
 
             // コマ枠とサムネイルバーを選択中カットのものに切り替え
@@ -991,7 +1053,14 @@ namespace IrisPxS
 
             if (strip.Frames.Count > 0)
             {
-                SelectFrame(strip.Frames[0]);
+                if (_selectedFrame != null && strip.Frames.Contains(_selectedFrame))
+                {
+                    SelectFrame(_selectedFrame);
+                }
+                else
+                {
+                    SelectFrame(strip.Frames[0]);
+                }
             }
             else
             {
@@ -1100,6 +1169,9 @@ namespace IrisPxS
 
             var (straightenedMat, skewAngle, detectedRects) = _detectorService.DetectAndStraighten(scanMat, format, dpi);
 
+            strip.SkewAngle = skewAngle;
+            strip.FrameCoordinatesDpi = dpi;
+
             // 傾きが検知された場合 (0.1度以上)、画像を正立（回転補正）した画像に差し替え
             if (Math.Abs(skewAngle) >= 0.1)
             {
@@ -1116,8 +1188,9 @@ namespace IrisPxS
                 var (rawPath, irPath) = _sessionService.SaveStripImages(_currentRoll.SessionId, strip.Id, _currentScanMat, _currentIrMat);
                 strip.FullScanImagePath = rawPath;
                 strip.FullScanIrPath = irPath;
+                _currentLoadedScanPath = rawPath;
 
-                ScanCanvas.ImageSource = _currentScanMat.ToBitmapSource();
+                UpdateScanCanvasImage(_currentScanMat);
             }
             else
             {

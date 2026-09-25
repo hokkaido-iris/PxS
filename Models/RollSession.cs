@@ -64,7 +64,9 @@ namespace IrisPxS.Models
         public string? FullScanImagePath { get; set; }
         public string? FullScanIrPath { get; set; }
 
-        public int ScanDpi { get; set; } = 2400;
+        public int ScanDpi { get; set; } = 300;
+        public int FrameCoordinatesDpi { get; set; } = 300;
+        public double SkewAngle { get; set; } = 0.0;
         public DateTime ScannedAt { get; set; } = DateTime.Now;
 
         private ObservableCollection<FilmFrame> _frames = new();

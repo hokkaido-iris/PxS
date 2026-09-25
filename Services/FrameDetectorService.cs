@@ -800,6 +800,34 @@ namespace IrisPxS.Services
         /// 等間隔配置（ベースグリッド）をアンカーとし、各コマ周辺の局所投影プロファイル・エッジ勾配で
         /// 写真の実際の境界（コマ間スリット・左右アパーチャ端）を自動検出し、高精度に微調整する
         /// </summary>
+        /// <summary>
+        /// 画像領域内のテクスチャ標準偏差（シーンディテール量）を算出。未露光部（ベース）はほぼ0、写真は高値となる。
+        /// </summary>
+        public static double ComputeRegionTextureStdDev(Mat gray, int x, int y, int w, int h)
+        {
+            if (gray == null || gray.Empty() || w <= 4 || h <= 4) return 0.0;
+            int cx = Math.Max(0, Math.Min(x, gray.Width - 1));
+            int cy = Math.Max(0, Math.Min(y, gray.Height - 1));
+            int cw = Math.Max(1, Math.Min(w, gray.Width - cx));
+            int ch = Math.Max(1, Math.Min(h, gray.Height - cy));
+            if (cw <= 4 || ch <= 4) return 0.0;
+
+            try
+            {
+                using var roi = new Mat(gray, new OpenCvSharp.Rect(cx, cy, cw, ch));
+                Cv2.MeanStdDev(roi, out _, out Scalar stdDev);
+                return stdDev.Val0;
+            }
+            catch
+            {
+                return 0.0;
+            }
+        }
+
+        /// <summary>
+        /// 等間隔配置（ベースグリッド）をアンカーとし、各コマ周辺の局所投影プロファイル・エッジ勾配で
+        /// 写真の実際の境界（コマ間スリット・左右アパーチャ端）を自動検出し、高精度に微調整する
+        /// </summary>
         public List<OpenCvSharp.Rect> RefineFrameBoundaries(
             Mat scanMat,
             List<OpenCvSharp.Rect> baseFrames,
@@ -824,12 +852,10 @@ namespace IrisPxS.Services
             if (isVertical)
             {
                 // 縦ストリップ: Y軸＝コマ送り方向（巻き上げムラあり）、X軸＝アパーチャ幅方向（物理幅固定）
-                int searchWinY = Math.Max(25, (int)(pitchPx * p.SearchWindowPitchRatio));
-                int searchWinX = Math.Max(15, (int)(targetW * 0.12));
+                // 探索窓幅は理論ピッチの ±6% または最大 25px に制限（隣接コマや内部被写体への誤引き込みを物理防止）
+                int searchWinY = Math.Min(25, Math.Max(12, (int)(pitchPx * 0.06)));
+                int searchWinX = Math.Min(20, Math.Max(10, (int)(targetW * 0.06)));
 
-                // 1. 各コマの長手方向（Top, Bottom）の境界を局所プロファイル勾配で探索
-                // ※重要: カメラのアパーチャゲートは剛体金属板のため、コマサイズ(targetW, targetH)およびアスペクト比は物理的に完全に不変。
-                // 探索されたエッジはコマの中心位置 (Center Y) の微調整にのみ使用し、幅・高さ・比率は100%固定とする。
                 var refinedTops = new List<int>();
 
                 for (int i = 0; i < baseFrames.Count; i++)
@@ -888,7 +914,6 @@ namespace IrisPxS.Services
                         }
                     }
 
-                    // 境界エッジの信頼性判定
                     bool topConfident = maxTopGrad >= p.MinEdgeGradientThreshold;
                     bool botConfident = maxBotGrad >= p.MinEdgeGradientThreshold;
 
@@ -897,32 +922,54 @@ namespace IrisPxS.Services
                     if (topConfident && botConfident)
                     {
                         int span = detectedBot - detectedTop;
-                        if (Math.Abs(span - targetH) <= (targetH * p.DimensionTolerance))
+                        if (Math.Abs(span - targetH) <= (targetH * 0.08))
                         {
-                            // 上下両端のエッジが見つかり、間隔が規格高さに近い場合: 中心位置から配置 (寸法 targetH は固定不変)
                             double centerY = (detectedTop + detectedBot) / 2.0;
                             finalTop = (int)Math.Round(centerY - targetH / 2.0);
                         }
-                        else if (maxTopGrad >= maxBotGrad)
+                        else
+                        {
+                            // どちらのエッジを採用するか: 枠内画像テクスチャ量が大きい方を採択（逆方向配置を完全防止）
+                            double detailTop = ComputeRegionTextureStdDev(gray, r.X, detectedTop, targetW, targetH);
+                            double detailBot = ComputeRegionTextureStdDev(gray, r.X, detectedBot - targetH, targetW, targetH);
+                            finalTop = detailTop >= detailBot ? detectedTop : (detectedBot - targetH);
+                        }
+                    }
+                    else if (topConfident)
+                    {
+                        // detectedTop が写真の上辺か下辺かを検証
+                        double detailInCandidate = ComputeRegionTextureStdDev(gray, r.X, detectedTop, targetW, targetH);
+                        double detailAboveCandidate = ComputeRegionTextureStdDev(gray, r.X, detectedTop - targetH, targetW, targetH);
+
+                        if (detailAboveCandidate > detailInCandidate * 1.35)
+                        {
+                            // detectedTop は写真の下辺だった（逆配置防止: 上に向かって配置）
+                            finalTop = detectedTop - targetH;
+                        }
+                        else
                         {
                             finalTop = detectedTop;
+                        }
+                    }
+                    else if (botConfident)
+                    {
+                        // detectedBot が写真の下辺か上辺かを検証
+                        double detailInCandidate = ComputeRegionTextureStdDev(gray, r.X, detectedBot - targetH, targetW, targetH);
+                        double detailBelowCandidate = ComputeRegionTextureStdDev(gray, r.X, detectedBot, targetW, targetH);
+
+                        if (detailBelowCandidate > detailInCandidate * 1.35)
+                        {
+                            // detectedBot は写真の上辺だった（逆配置防止: 下に向かって配置）
+                            finalTop = detectedBot;
                         }
                         else
                         {
                             finalTop = detectedBot - targetH;
                         }
                     }
-                    else if (topConfident)
-                    {
-                        finalTop = detectedTop;
-                    }
-                    else if (botConfident)
-                    {
-                        finalTop = detectedBot - targetH;
-                    }
 
                     // 理論ベース位置からの乖離が大きすぎる場合はフェイルセーフで理論位置へ
-                    if (Math.Abs(finalTop - baseTop) > searchWinY * 1.5)
+                    if (Math.Abs(finalTop - baseTop) > searchWinY)
                     {
                         finalTop = baseTop;
                     }
@@ -931,7 +978,7 @@ namespace IrisPxS.Services
                 }
 
                 // 2. 幅方向（X軸）の最適化:
-                // カメラの露光ゲート幅は全コマ共通のため、信頼性の高いコマ群の中央値から X を決定
+                // フィルムストリップ中央（baseFrames[0].X）を強固なアンカーとし、パーフォレーションへの飛び移りを完全防止
                 int bestX = baseFrames[0].X;
 
                 var xOffsets = new List<int>();
@@ -952,43 +999,39 @@ namespace IrisPxS.Services
                     float[] rowValsX = new float[scanMat.Width];
                     System.Runtime.InteropServices.Marshal.Copy(rowMeanX.Data, rowValsX, 0, scanMat.Width);
 
-                    int leftMin = Math.Max(0, r.X - searchWinX);
-                    int leftMax = Math.Min(scanMat.Width, r.X + searchWinX);
+                    int leftMin = Math.Max(0, bestX - searchWinX);
+                    int leftMax = Math.Min(scanMat.Width, bestX + searchWinX);
                     float maxLeftGrad = 0;
-                    int detectedLeftX = r.X;
+                    int detectedLeftX = bestX;
                     for (int k = leftMin + 1; k < leftMax - 1; k++)
                     {
                         float diff = Math.Abs(rowValsX[k + 1] - rowValsX[k - 1]);
                         if (diff > maxLeftGrad) { maxLeftGrad = diff; detectedLeftX = k; }
                     }
 
-                    int rightMin = Math.Max(0, (r.X + r.Width) - searchWinX);
-                    int rightMax = Math.Min(scanMat.Width, (r.X + r.Width) + searchWinX);
+                    int rightMin = Math.Max(0, (bestX + targetW) - searchWinX);
+                    int rightMax = Math.Min(scanMat.Width, (bestX + targetW) + searchWinX);
                     float maxRightGrad = 0;
-                    int detectedRightX = r.X + r.Width;
+                    int detectedRightX = bestX + targetW;
                     for (int k = rightMin + 1; k < rightMax - 1; k++)
                     {
                         float diff = Math.Abs(rowValsX[k + 1] - rowValsX[k - 1]);
                         if (diff > maxRightGrad) { maxRightGrad = diff; detectedRightX = k; }
                     }
 
+                    // 左右両端が共に検出され、幅が規格に整合する場合のみ採用（単独エッジによる誤跳躍を排除）
                     if (maxLeftGrad >= p.MinEdgeGradientThreshold && maxRightGrad >= p.MinEdgeGradientThreshold)
                     {
                         int span = detectedRightX - detectedLeftX;
-                        if (Math.Abs(span - targetW) <= targetW * p.DimensionTolerance)
+                        if (Math.Abs(span - targetW) <= targetW * 0.05)
                         {
                             double centerX = (detectedLeftX + detectedRightX) / 2.0;
                             int optLeft = (int)Math.Round(centerX - targetW / 2.0);
-                            xOffsets.Add(optLeft);
+                            if (Math.Abs(optLeft - bestX) <= searchWinX)
+                            {
+                                xOffsets.Add(optLeft);
+                            }
                         }
-                    }
-                    else if (maxLeftGrad >= p.MinEdgeGradientThreshold)
-                    {
-                        xOffsets.Add(detectedLeftX);
-                    }
-                    else if (maxRightGrad >= p.MinEdgeGradientThreshold)
-                    {
-                        xOffsets.Add(detectedRightX - targetW);
                     }
                 }
 
@@ -1021,11 +1064,9 @@ namespace IrisPxS.Services
             else
             {
                 // 横ストリップ: X軸＝コマ送り方向（巻き上げムラあり）、Y軸＝アパーチャ幅方向
-                int searchWinX = Math.Max(25, (int)(pitchPx * p.SearchWindowPitchRatio));
-                int searchWinY = Math.Max(15, (int)(targetH * 0.12));
+                int searchWinX = Math.Min(25, Math.Max(12, (int)(pitchPx * 0.06)));
+                int searchWinY = Math.Min(20, Math.Max(10, (int)(targetH * 0.06)));
 
-                // 1. 各コマの長手方向（Left, Right）の境界を局所プロファイル勾配で探索
-                // ※重要: コマサイズ(targetW, targetH)およびアスペクト比は物理的に完全に不変。
                 var refinedLefts = new List<int>();
 
                 for (int i = 0; i < baseFrames.Count; i++)
@@ -1092,31 +1133,48 @@ namespace IrisPxS.Services
                     if (leftConfident && rightConfident)
                     {
                         int span = detectedRight - detectedLeft;
-                        if (Math.Abs(span - targetW) <= (targetW * p.DimensionTolerance))
+                        if (Math.Abs(span - targetW) <= (targetW * 0.08))
                         {
-                            // 左右両端のエッジが見つかり、間隔が規格幅に近い場合: 中心位置から配置 (寸法 targetW は固定不変)
                             double centerX = (detectedLeft + detectedRight) / 2.0;
                             finalLeft = (int)Math.Round(centerX - targetW / 2.0);
                         }
-                        else if (maxLeftGrad >= maxRightGrad)
+                        else
+                        {
+                            double detailLeft = ComputeRegionTextureStdDev(gray, detectedLeft, r.Y, targetW, targetH);
+                            double detailRight = ComputeRegionTextureStdDev(gray, detectedRight - targetW, r.Y, targetW, targetH);
+                            finalLeft = detailLeft >= detailRight ? detectedLeft : (detectedRight - targetW);
+                        }
+                    }
+                    else if (leftConfident)
+                    {
+                        double detailInCandidate = ComputeRegionTextureStdDev(gray, detectedLeft, r.Y, targetW, targetH);
+                        double detailLeftCandidate = ComputeRegionTextureStdDev(gray, detectedLeft - targetW, r.Y, targetW, targetH);
+
+                        if (detailLeftCandidate > detailInCandidate * 1.35)
+                        {
+                            finalLeft = detectedLeft - targetW;
+                        }
+                        else
                         {
                             finalLeft = detectedLeft;
+                        }
+                    }
+                    else if (rightConfident)
+                    {
+                        double detailInCandidate = ComputeRegionTextureStdDev(gray, detectedRight - targetW, r.Y, targetW, targetH);
+                        double detailRightCandidate = ComputeRegionTextureStdDev(gray, detectedRight, r.Y, targetW, targetH);
+
+                        if (detailRightCandidate > detailInCandidate * 1.35)
+                        {
+                            finalLeft = detectedRight;
                         }
                         else
                         {
                             finalLeft = detectedRight - targetW;
                         }
                     }
-                    else if (leftConfident)
-                    {
-                        finalLeft = detectedLeft;
-                    }
-                    else if (rightConfident)
-                    {
-                        finalLeft = detectedRight - targetW;
-                    }
 
-                    if (Math.Abs(finalLeft - baseLeft) > searchWinX * 1.5)
+                    if (Math.Abs(finalLeft - baseLeft) > searchWinX)
                     {
                         finalLeft = baseLeft;
                     }
@@ -1145,20 +1203,20 @@ namespace IrisPxS.Services
                     float[] colValsY = new float[scanMat.Height];
                     System.Runtime.InteropServices.Marshal.Copy(colMeanY.Data, colValsY, 0, scanMat.Height);
 
-                    int topMin = Math.Max(0, r.Y - searchWinY);
-                    int topMax = Math.Min(scanMat.Height, r.Y + searchWinY);
+                    int topMin = Math.Max(0, bestY - searchWinY);
+                    int topMax = Math.Min(scanMat.Height, bestY + searchWinY);
                     float maxTopGrad = 0;
-                    int detectedTopY = r.Y;
+                    int detectedTopY = bestY;
                     for (int k = topMin + 1; k < topMax - 1; k++)
                     {
                         float diff = Math.Abs(colValsY[k + 1] - colValsY[k - 1]);
                         if (diff > maxTopGrad) { maxTopGrad = diff; detectedTopY = k; }
                     }
 
-                    int botMin = Math.Max(0, (r.Y + r.Height) - searchWinY);
-                    int botMax = Math.Min(scanMat.Height, (r.Y + r.Height) + searchWinY);
+                    int botMin = Math.Max(0, (bestY + targetH) - searchWinY);
+                    int botMax = Math.Min(scanMat.Height, (bestY + targetH) + searchWinY);
                     float maxBotGrad = 0;
-                    int detectedBotY = r.Y + r.Height;
+                    int detectedBotY = bestY + targetH;
                     for (int k = botMin + 1; k < botMax - 1; k++)
                     {
                         float diff = Math.Abs(colValsY[k + 1] - colValsY[k - 1]);
@@ -1168,20 +1226,15 @@ namespace IrisPxS.Services
                     if (maxTopGrad >= p.MinEdgeGradientThreshold && maxBotGrad >= p.MinEdgeGradientThreshold)
                     {
                         int span = detectedBotY - detectedTopY;
-                        if (Math.Abs(span - targetH) <= targetH * p.DimensionTolerance)
+                        if (Math.Abs(span - targetH) <= targetH * 0.05)
                         {
                             double centerY = (detectedTopY + detectedBotY) / 2.0;
                             int optTop = (int)Math.Round(centerY - targetH / 2.0);
-                            yOffsets.Add(optTop);
+                            if (Math.Abs(optTop - bestY) <= searchWinY)
+                            {
+                                yOffsets.Add(optTop);
+                            }
                         }
-                    }
-                    else if (maxTopGrad >= p.MinEdgeGradientThreshold)
-                    {
-                        yOffsets.Add(detectedTopY);
-                    }
-                    else if (maxBotGrad >= p.MinEdgeGradientThreshold)
-                    {
-                        yOffsets.Add(detectedBotY - targetH);
                     }
                 }
 
