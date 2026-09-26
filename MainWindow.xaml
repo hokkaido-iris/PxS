@@ -282,12 +282,15 @@
                             </StackPanel>
                         </GroupBox>
 
-                        <!-- スキャン解像度設定 -->
-                        <GroupBox Header="解像度設定">
+                        <!-- スキャン設定 (解像度 & bit数) -->
+                        <GroupBox Header="スキャン設定">
                             <StackPanel Margin="2">
                                 <Label Content="スキャン解像度 (DPI):" />
-                                <ComboBox x:Name="CmbDpi" Margin="0,0,0,4" SelectionChanged="CmbDpi_SelectionChanged" />
-                                <TextBlock Text="※最大 12800 DPI まで対応" FontSize="10" Foreground="#666666" />
+                                <ComboBox x:Name="CmbDpi" Margin="0,0,0,6" SelectionChanged="CmbDpi_SelectionChanged" />
+
+                                <Label Content="スキャン bit 数:" />
+                                <ComboBox x:Name="CmbBitDepth" Margin="0,0,0,4" SelectionChanged="CmbBitDepth_SelectionChanged" ToolTip="24-bit (8-bit/ch) は標準。48-bit (16-bit/ch) はネガ現像時の高階調・ハイライト保持に最適" />
+                                <TextBlock Text="※48-bit (16-bit/ch) は高階調ネガ現像に対応" FontSize="10" Foreground="#666666" />
                             </StackPanel>
                         </GroupBox>
 
@@ -824,10 +827,12 @@
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <TextBlock x:Name="TxtStatus" Text="準備完了" FontSize="11" Foreground="#333333" VerticalAlignment="Center" />
-                <ProgressBar x:Name="PrgScan" Grid.Column="1" Width="140" Height="14" Margin="8,0" Visibility="Collapsed" />
-                <TextBlock x:Name="TxtInfo" Grid.Column="2" Text="Epson GT-X820 フィルムスキャナー" FontSize="11" Foreground="#555555" VerticalAlignment="Center" />
+                <TextBlock x:Name="TxtCountdown" Grid.Column="1" Text="" FontWeight="SemiBold" Foreground="#005A9E" FontSize="11" VerticalAlignment="Center" Margin="8,0" Visibility="Collapsed" />
+                <ProgressBar x:Name="PrgScan" Grid.Column="2" Width="140" Height="14" Margin="6,0" Visibility="Collapsed" />
+                <TextBlock x:Name="TxtInfo" Grid.Column="3" Text="Epson GT-X820 フィルムスキャナー" FontSize="11" Foreground="#555555" VerticalAlignment="Center" />
             </Grid>
         </Border>
     </Grid>

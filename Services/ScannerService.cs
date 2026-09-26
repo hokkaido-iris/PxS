@@ -97,11 +97,30 @@ namespace IrisPxS.Services
         /// <param name="scanner">対象スキャナー</param>
         /// <param name="dpi">解像度 (最大 12800 dpi)</param>
         /// <param name="isTransmissive">フィルム透過光ユニット(TPU)を有効にするか</param>
+        public Task<(Mat ColorMat, Mat? IrMat)> ScanAsync(
+            ScannerDeviceInfo? scanner,
+            int dpi,
+            bool isTransmissive = true,
+            OpenCvSharp.Rect? subRegion = null,
+            IProgress<string>? progress = null,
+            CancellationToken ct = default)
+        {
+            return ScanAsync(scanner, dpi, 8, isTransmissive, subRegion, progress, ct);
+        }
+
+        /// <summary>
+        /// スキャン実行 (PreScan または 本スキャン)
+        /// </summary>
+        /// <param name="scanner">対象スキャナー</param>
+        /// <param name="dpi">解像度 (最大 12800 dpi)</param>
+        /// <param name="bitDepth">ビット深度 (8: 24bpp Color, 16: 48bpp Color)</param>
+        /// <param name="isTransmissive">フィルム透過光ユニット(TPU)を有効にするか</param>
         /// <param name="subRegion">スキャン領域 (nullの場合は全原稿台)</param>
         /// <param name="progress">進捗通知</param>
         public async Task<(Mat ColorMat, Mat? IrMat)> ScanAsync(
             ScannerDeviceInfo? scanner,
             int dpi,
+            int bitDepth,
             bool isTransmissive = true,
             OpenCvSharp.Rect? subRegion = null,
             IProgress<string>? progress = null,
@@ -113,8 +132,8 @@ namespace IrisPxS.Services
             {
                 try
                 {
-                    progress?.Report($"TWAINスキャンエンジンを起動中 (解像度: {dpi} DPI, モード: {(isTransmissive ? "透過原稿/TPU点灯" : "反射原稿")})...");
-                    return await ScanViaTwainWorkerAsync(workerPath, dpi, isTransmissive, false, progress, ct);
+                    progress?.Report($"TWAINスキャンエンジンを起動中 (解像度: {dpi} DPI, {(bitDepth >= 16 ? "48-bit" : "24-bit")}, モード: {(isTransmissive ? "透過原稿/TPU点灯" : "反射原稿")})...");
+                    return await ScanViaTwainWorkerAsync(workerPath, dpi, bitDepth, isTransmissive, false, progress, ct);
                 }
                 catch (Exception twainEx)
                 {
@@ -181,10 +200,11 @@ namespace IrisPxS.Services
                     // プロパティ設定
                     try
                     {
-                        // カラー (RGB 24bit)
+                        // カラー (RGB 24bit または 48bit)
+                        int bpp = (bitDepth >= 16) ? 48 : 24;
                         SetWiaProperty(item, WiaPropertyCurrentIntent, 1); // 1 = ColorIntent
                         SetWiaProperty(item, WiaPropertyDataType, 3); // 3 = Color
-                        SetWiaProperty(item, WiaPropertyBitsPerPixel, 24);
+                        SetWiaProperty(item, WiaPropertyBitsPerPixel, bpp);
 
                         // 透過原稿ユニット (TPU) 設定
                         // GT-X820 の WIA ドライバ仕様: 128 = 透過原稿 (フィルムモード/フタ側TPUランプ点灯), 2 = 反射原稿 (通常原稿台)
@@ -259,7 +279,15 @@ namespace IrisPxS.Services
         /// <summary>
         /// スキャナーの標準プレビュー・設定ダイアログを表示してスキャンを実行
         /// </summary>
-        public async Task<(Mat ColorMat, Mat? IrMat)> ScanWithDialogAsync(IProgress<string>? progress = null)
+        public Task<(Mat ColorMat, Mat? IrMat)> ScanWithDialogAsync(IProgress<string>? progress = null)
+        {
+            return ScanWithDialogAsync(8, progress);
+        }
+
+        /// <summary>
+        /// スキャナーの標準プレビュー・設定ダイアログを表示してスキャンを実行
+        /// </summary>
+        public async Task<(Mat ColorMat, Mat? IrMat)> ScanWithDialogAsync(int bitDepth, IProgress<string>? progress = null)
         {
             // TWAIN WorkerでEpson Scanの純正ダイアログを表示してスキャン
             string? workerPath = FindTwainWorkerPath();
@@ -268,7 +296,7 @@ namespace IrisPxS.Services
                 try
                 {
                     progress?.Report("EPSON Scan TWAINダイアログを起動中...");
-                    return await ScanViaTwainWorkerAsync(workerPath, 300, true, true, progress, CancellationToken.None);
+                    return await ScanViaTwainWorkerAsync(workerPath, 300, bitDepth, true, true, progress, CancellationToken.None);
                 }
                 catch (Exception ex)
                 {
@@ -296,12 +324,20 @@ namespace IrisPxS.Services
 
                     imageFile.SaveFile(tempScanPath);
 
-                    var colorMat = Cv2.ImRead(tempScanPath, ImreadModes.Color);
+                    var colorMat = Cv2.ImRead(tempScanPath, ImreadModes.Unchanged);
                     try { File.Delete(tempScanPath); } catch { }
 
                     if (colorMat.Empty())
                     {
                         throw new InvalidOperationException("スキャン画像データを読み込めませんでした。");
+                    }
+
+                    if (colorMat.Channels() == 1)
+                    {
+                        var bgr = new Mat();
+                        Cv2.CvtColor(colorMat, bgr, ColorConversionCodes.GRAY2BGR);
+                        colorMat.Dispose();
+                        colorMat = bgr;
                     }
 
                     Mat irMat = ExtractOrSimulateIrChannel(colorMat);
@@ -322,15 +358,16 @@ namespace IrisPxS.Services
         private async Task<(Mat ColorMat, Mat? IrMat)> ScanViaTwainWorkerAsync(
             string workerExePath,
             int dpi,
+            int bitDepth,
             bool isTransmissive,
             bool showUi,
             IProgress<string>? progress,
             CancellationToken ct)
         {
             string tempOutputFile = Path.Combine(Path.GetTempPath(), $"IrisPxS_TwainScan_{Guid.NewGuid():N}.bmp");
-            string args = $"--output \"{tempOutputFile}\" --dpi {dpi} {(isTransmissive ? "--tpu" : "--reflective")} {(showUi ? "--ui" : "")}";
+            string args = $"--output \"{tempOutputFile}\" --dpi {dpi} --bitdepth {bitDepth} {(isTransmissive ? "--tpu" : "--reflective")} {(showUi ? "--ui" : "")}";
 
-            progress?.Report($"透過原稿スキャン実行中 (解像度: {dpi} DPI, フタ側ランプ点灯)...");
+            progress?.Report($"透過原稿スキャン実行中 (解像度: {dpi} DPI, {(bitDepth >= 16 ? "48-bit" : "24-bit")}, フタ側ランプ点灯)...");
 
             var startInfo = new System.Diagnostics.ProcessStartInfo
             {
@@ -386,12 +423,37 @@ namespace IrisPxS.Services
             }
 
             progress?.Report("画像データ解析中...");
-            var colorMat = Cv2.ImRead(tempOutputFile, ImreadModes.Color);
+            var colorMat = Cv2.ImRead(tempOutputFile, ImreadModes.Unchanged);
             try { File.Delete(tempOutputFile); } catch { }
 
             if (colorMat.Empty())
             {
                 throw new InvalidOperationException("取得したスキャン画像の読み込みに失敗しました。");
+            }
+
+            // 1チャンネル画像の場合はBGRへ
+            if (colorMat.Channels() == 1)
+            {
+                var bgr = new Mat();
+                Cv2.CvtColor(colorMat, bgr, ColorConversionCodes.GRAY2BGR);
+                colorMat.Dispose();
+                colorMat = bgr;
+            }
+
+            // 要求ビット深度との整合
+            if (bitDepth >= 16 && colorMat.Depth() != MatType.CV_16U)
+            {
+                var mat16 = new Mat();
+                colorMat.ConvertTo(mat16, MatType.CV_16UC3, 257.0);
+                colorMat.Dispose();
+                colorMat = mat16;
+            }
+            else if (bitDepth <= 8 && colorMat.Depth() != MatType.CV_8U)
+            {
+                var mat8 = new Mat();
+                colorMat.ConvertTo(mat8, MatType.CV_8UC3, 1.0 / 257.0);
+                colorMat.Dispose();
+                colorMat = mat8;
             }
 
             // 超高解像度指定 (>6400dpi) の場合の補間

@@ -22,6 +22,13 @@ namespace IrisPxS
         private readonly ExifMetadataService _exifService = new();
         private readonly RollSessionService _sessionService = new();
         private readonly RollExportService _exportService;
+        private readonly ScanDurationTracker _durationTracker = new();
+
+        private System.Windows.Threading.DispatcherTimer? _countdownTimer;
+        private System.Diagnostics.Stopwatch? _scanStopwatch;
+        private double _estimatedTotalSeconds = 0;
+        private int _currentScanningDpi = 300;
+        private int _currentScanningBitDepth = 8;
 
         private RollSession _currentRoll = new();
         private FilmStrip? _currentStrip = null;
@@ -42,6 +49,7 @@ namespace IrisPxS
             InitializeFormatControls();
             InitializeProfileCombo();
             InitializeDpiCombo();
+            InitializeBitDepthCombo();
             InitializeSession();
 
             ScanCanvas.FrameSelected += (s, frame) => SelectFrame(frame);
@@ -151,6 +159,32 @@ namespace IrisPxS
             CmbDpi.Items.Add("9600 DPI (高品位補間)");
             CmbDpi.Items.Add("12800 DPI (最大補間)");
             CmbDpi.SelectedIndex = 3; // 2400 DPI
+        }
+
+        private void InitializeBitDepthCombo()
+        {
+            CmbBitDepth.Items.Clear();
+            CmbBitDepth.Items.Add("24-bit (8-bit/ch) [標準]");
+            CmbBitDepth.Items.Add("48-bit (16-bit/ch) [高階調]");
+            CmbBitDepth.SelectedIndex = 0; // デフォルト 24-bit
+        }
+
+        private int GetSelectedBitDepth()
+        {
+            if (CmbBitDepth.SelectedItem is string text && text.Contains("48-bit"))
+            {
+                return 16;
+            }
+            return 8;
+        }
+
+        private void CmbBitDepth_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isUpdatingUi) return;
+            int dpi = GetSelectedScanDpi();
+            int bitDepth = GetSelectedBitDepth();
+            double estSec = _durationTracker.GetEstimatedDurationSeconds(dpi, bitDepth);
+            TxtStatus.Text = $"スキャン設定: {dpi} DPI / {(bitDepth >= 16 ? "48-bit Color (16-bit/ch)" : "24-bit Color")} (推定所要時間: 約 {(int)Math.Round(estSec)} 秒)";
         }
 
         private void InitializeSession()
@@ -289,6 +323,69 @@ namespace IrisPxS
         // ======================================================================
         // 【上側】Machine Control イベントハンドラ
         // ======================================================================
+        // 【上側】Machine Control イベントハンドラ & スキャン計測・カウントダウン
+        // ======================================================================
+
+        private void StartScanTimer(int dpi, int bitDepth)
+        {
+            _currentScanningDpi = dpi;
+            _currentScanningBitDepth = bitDepth;
+            _estimatedTotalSeconds = _durationTracker.GetEstimatedDurationSeconds(dpi, bitDepth);
+            _scanStopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+            if (_countdownTimer == null)
+            {
+                _countdownTimer = new System.Windows.Threading.DispatcherTimer
+                {
+                    Interval = TimeSpan.FromSeconds(1)
+                };
+                _countdownTimer.Tick += CountdownTimer_Tick;
+            }
+
+            TxtCountdown.Visibility = Visibility.Visible;
+            TxtCountdown.Text = $"残り 約 {(int)Math.Ceiling(_estimatedTotalSeconds)} 秒";
+            PrgScan.IsIndeterminate = false;
+            PrgScan.Value = 0;
+            _countdownTimer.Start();
+        }
+
+        private void CountdownTimer_Tick(object? sender, EventArgs e)
+        {
+            if (_scanStopwatch == null) return;
+            double elapsed = _scanStopwatch.Elapsed.TotalSeconds;
+            double remaining = _estimatedTotalSeconds - elapsed;
+
+            if (remaining > 0)
+            {
+                int remSec = (int)Math.Ceiling(remaining);
+                double pct = Math.Min(95.0, (elapsed / _estimatedTotalSeconds) * 100.0);
+                TxtCountdown.Text = $"残り 約 {remSec} 秒 ({pct:F0}%)";
+                PrgScan.IsIndeterminate = false;
+                PrgScan.Value = pct;
+            }
+            else
+            {
+                TxtCountdown.Text = "データ転送・画像生成中... (まもなく完了)";
+                PrgScan.IsIndeterminate = true;
+            }
+        }
+
+        private void StopScanTimer(bool success)
+        {
+            _countdownTimer?.Stop();
+            TxtCountdown.Visibility = Visibility.Collapsed;
+
+            if (_scanStopwatch != null)
+            {
+                _scanStopwatch.Stop();
+                double actualSec = _scanStopwatch.Elapsed.TotalSeconds;
+                if (success)
+                {
+                    _durationTracker.RecordActualDuration(_currentScanningDpi, _currentScanningBitDepth, actualSec);
+                    TxtStatus.Text = $"スキャン完了！ (所要時間: {actualSec:F1}秒)";
+                }
+            }
+        }
 
         private async void BtnPreScan_Click(object sender, RoutedEventArgs e)
         {
@@ -303,12 +400,16 @@ namespace IrisPxS
 
         private async void BtnScanDialog_Click(object sender, RoutedEventArgs e)
         {
+            int dpi = GetSelectedScanDpi();
+            int bitDepth = GetSelectedBitDepth();
             SetScanningUiState(true);
+            StartScanTimer(dpi, bitDepth);
             var progress = new Progress<string>(msg => TxtStatus.Text = msg);
+            bool success = false;
 
             try
             {
-                var (colorMat, irMat) = await _scannerService.ScanWithDialogAsync(progress);
+                var (colorMat, irMat) = await _scannerService.ScanWithDialogAsync(bitDepth, progress);
                 if (_currentStrip == null)
                 {
                     int nextIdx = _currentRoll.Strips.Count + 1;
@@ -316,8 +417,8 @@ namespace IrisPxS
                     _currentRoll.Strips.Add(_currentStrip);
                     LstCuts.SelectedItem = _currentStrip;
                 }
-                int dpi = GetSelectedScanDpi();
                 ApplyScanDataToCut(_currentStrip, colorMat, irMat, dpi, isPreScan: false);
+                success = true;
             }
             catch (OperationCanceledException)
             {
@@ -329,14 +430,18 @@ namespace IrisPxS
             }
             finally
             {
+                StopScanTimer(success);
                 SetScanningUiState(false);
             }
         }
 
         private async Task RunScanAsync(int dpi, bool isPreScan)
         {
+            int bitDepth = isPreScan ? 8 : GetSelectedBitDepth();
             SetScanningUiState(true);
+            StartScanTimer(dpi, bitDepth);
             var progress = new Progress<string>(msg => TxtStatus.Text = msg);
+            bool success = false;
 
             try
             {
@@ -355,9 +460,10 @@ namespace IrisPxS
                 }
 
                 // フィルムスキャンのため isTransmissive = true (TPU 透過光ユニット点灯)
-                var (colorMat, irMat) = await _scannerService.ScanAsync(_activeScanner, dpi, true, null, progress);
+                var (colorMat, irMat) = await _scannerService.ScanAsync(_activeScanner, dpi, bitDepth, true, null, progress);
 
                 ApplyScanDataToCut(_currentStrip, colorMat, irMat, dpi, isPreScan);
+                success = true;
             }
             catch (Exception ex)
             {
@@ -365,6 +471,7 @@ namespace IrisPxS
             }
             finally
             {
+                StopScanTimer(success);
                 SetScanningUiState(false);
             }
         }
@@ -375,7 +482,11 @@ namespace IrisPxS
             BtnScan.IsEnabled = !isScanning;
             BtnScannerSetting.IsEnabled = !isScanning;
             PrgScan.Visibility = isScanning ? Visibility.Visible : Visibility.Collapsed;
-            PrgScan.IsIndeterminate = isScanning;
+            if (!isScanning)
+            {
+                PrgScan.IsIndeterminate = false;
+                PrgScan.Value = 0;
+            }
             SetScannerStatus(isScanning ? ScannerState.Busy : ScannerState.Ready, isScanning ? "Scanning..." : "Ready");
         }
 
@@ -392,20 +503,40 @@ namespace IrisPxS
             ScanCanvas.LogicalImageWidth = mat.Width;
             ScanCanvas.LogicalImageHeight = mat.Height;
 
-            // 長辺が3000pxを超える高解像度画像の場合、UI描画用の軽量プレビュー（長辺2860px）を生成してWIC/RAMを劇的削減（800MB -> ~6MB）
-            int maxDim = Math.Max(mat.Width, mat.Height);
-            if (maxDim > 3000)
+            // 16-bit画像の場合は表示用に8-bitへ安全変換
+            Mat effectiveMat = mat;
+            bool disposeEffective = false;
+            if (mat.Depth() == MatType.CV_16U)
             {
-                double scale = 2860.0 / maxDim;
-                int previewW = (int)Math.Round(mat.Width * scale);
-                int previewH = (int)Math.Round(mat.Height * scale);
-                using var previewMat = new Mat();
-                Cv2.Resize(mat, previewMat, new OpenCvSharp.Size(previewW, previewH), 0, 0, InterpolationFlags.Area);
-                ScanCanvas.ImageSource = previewMat.ToBitmapSource();
+                effectiveMat = new Mat();
+                mat.ConvertTo(effectiveMat, MatType.CV_8UC3, 1.0 / 257.0);
+                disposeEffective = true;
             }
-            else
+
+            try
             {
-                ScanCanvas.ImageSource = mat.ToBitmapSource();
+                // 長辺が3000pxを超える高解像度画像の場合、UI描画用の軽量プレビュー（長辺2860px）を生成してWIC/RAMを劇的削減（800MB -> ~6MB）
+                int maxDim = Math.Max(effectiveMat.Width, effectiveMat.Height);
+                if (maxDim > 3000)
+                {
+                    double scale = 2860.0 / maxDim;
+                    int previewW = (int)Math.Round(effectiveMat.Width * scale);
+                    int previewH = (int)Math.Round(effectiveMat.Height * scale);
+                    using var previewMat = new Mat();
+                    Cv2.Resize(effectiveMat, previewMat, new OpenCvSharp.Size(previewW, previewH), 0, 0, InterpolationFlags.Area);
+                    ScanCanvas.ImageSource = previewMat.ToBitmapSource();
+                }
+                else
+                {
+                    ScanCanvas.ImageSource = effectiveMat.ToBitmapSource();
+                }
+            }
+            finally
+            {
+                if (disposeEffective)
+                {
+                    effectiveMat.Dispose();
+                }
             }
         }
 
@@ -959,6 +1090,11 @@ namespace IrisPxS
 
         private void CmbDpi_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            if (_isUpdatingUi) return;
+            int dpi = GetSelectedScanDpi();
+            int bitDepth = GetSelectedBitDepth();
+            double estSec = _durationTracker.GetEstimatedDurationSeconds(dpi, bitDepth);
+            TxtStatus.Text = $"スキャン設定: {dpi} DPI / {(bitDepth >= 16 ? "48-bit Color (16-bit/ch)" : "24-bit Color")} (推定所要時間: 約 {(int)Math.Round(estSec)} 秒)";
         }
 
         private void CmbScannerList_SelectionChanged(object sender, SelectionChangedEventArgs e)

@@ -18,6 +18,7 @@ namespace IrisPxS.TwainWorker
         private static bool _scanSuccess = false;
         private static string _outputPath = "";
         private static int _dpi = 300;
+        private static int _bitDepth = 8; // 8 (24bpp) or 16 (48bpp)
         private static bool _useTpu = true;
         private static bool _showUi = false;
         private static string? _errorMessage = null;
@@ -46,6 +47,20 @@ namespace IrisPxS.TwainWorker
                 else if (args[i] == "--dpi" && i + 1 < args.Length)
                 {
                     int.TryParse(args[++i], out _dpi);
+                }
+                else if (args[i] == "--bitdepth" && i + 1 < args.Length)
+                {
+                    if (int.TryParse(args[++i], out int bd))
+                    {
+                        _bitDepth = (bd >= 16) ? 16 : 8;
+                    }
+                }
+                else if (args[i] == "--bpp" && i + 1 < args.Length)
+                {
+                    if (int.TryParse(args[++i], out int bpp))
+                    {
+                        _bitDepth = (bpp >= 48) ? 16 : 8;
+                    }
                 }
                 else if (args[i] == "--tpu")
                 {
@@ -157,6 +172,14 @@ namespace IrisPxS.TwainWorker
                 Console.WriteLine($"Current PixelType: {src.Capabilities.ICapPixelType.GetCurrent()}");
                 var values = src.Capabilities.ICapPixelType.GetValues();
                 Console.WriteLine($"Supported PixelTypes: {string.Join(", ", values)}");
+            }
+
+            Console.WriteLine($"ICapBitDepth: CanGet={src.Capabilities.ICapBitDepth.CanGet}, CanSet={src.Capabilities.ICapBitDepth.CanSet}");
+            if (src.Capabilities.ICapBitDepth.CanGet)
+            {
+                Console.WriteLine($"Current BitDepth: {src.Capabilities.ICapBitDepth.GetCurrent()}");
+                var values = src.Capabilities.ICapBitDepth.GetValues();
+                Console.WriteLine($"Supported BitDepths: {string.Join(", ", values)}");
             }
 
             Console.WriteLine($"ICapXResolution: CanGet={src.Capabilities.ICapXResolution.CanGet}, CanSet={src.Capabilities.ICapXResolution.CanSet}");
@@ -287,6 +310,13 @@ namespace IrisPxS.TwainWorker
                         {
                             var r = source.Capabilities.ICapPixelType.SetValue(PixelType.RGB);
                             Console.WriteLine($"[TwainWorker] Set PixelType.RGB: {r}");
+                        }
+
+                        // 3. ビット深度 (BitDepth: 8 or 16 bit/ch)
+                        if (source.Capabilities.ICapBitDepth.CanSet)
+                        {
+                            var r = source.Capabilities.ICapBitDepth.SetValue((short)_bitDepth);
+                            Console.WriteLine($"[TwainWorker] Set ICapBitDepth {_bitDepth}: {r}");
                         }
 
                         // 3. 解像度 (DPI)

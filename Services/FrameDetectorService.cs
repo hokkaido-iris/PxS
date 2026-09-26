@@ -656,8 +656,17 @@ namespace IrisPxS.Services
                 var baseFrames = new List<OpenCvSharp.Rect>();
                 for (int i = 0; i < chosenHoles.Count; i++)
                 {
-                    int hCy = chosenHoles[i].Y + chosenHoles[i].Height / 2;
-                    int frameCy = hCy + avgPitch / 2;
+                    int currentHoleCy = chosenHoles[i].Y + chosenHoles[i].Height / 2;
+                    int frameCy;
+                    if (i + 1 < chosenHoles.Count)
+                    {
+                        int nextHoleCy = chosenHoles[i + 1].Y + chosenHoles[i + 1].Height / 2;
+                        frameCy = (currentHoleCy + nextHoleCy) / 2;
+                    }
+                    else
+                    {
+                        frameCy = currentHoleCy + avgPitch / 2;
+                    }
                     int topY = frameCy - targetH / 2;
                     if (topY < 0 || topY + targetH > scanMat.Height) continue;
 
@@ -1213,18 +1222,38 @@ namespace IrisPxS.Services
 
             if (isVertical)
             {
-                // 縦ストリップ: Y軸＝コマ送り方向（巻き上げムラあり）、X軸＝アパーチャ幅方向（物理幅固定）
-                // 探索窓幅は理論ピッチの ±6% または最大 25px に制限（隣接コマや内部被写体への誤引き込みを物理防止）
-                int searchWinY = Math.Min(25, Math.Max(12, (int)(pitchPx * 0.06)));
-                int searchWinX = Math.Min(20, Math.Max(10, (int)(targetW * 0.06)));
+                // 縦ストリップ: Y軸＝コマ送り方向（巻き上げムラ・よれあり）、X軸＝アパーチャ幅方向（物理幅固定）
+                // 探索窓幅はフィルムのよれ・巻き上げムラ（一般に ±1〜3mm）を十分吸収できるよう、ピッチの ±18%（最低 30px）に設定
+                int searchWinY = Math.Max(30, (int)(pitchPx * 0.18));
+                int searchWinX = Math.Max(20, (int)(targetW * 0.08));
 
                 var refinedTops = new List<int>();
+                int gapH = Math.Max(4, pitchPx - targetH);
 
                 for (int i = 0; i < baseFrames.Count; i++)
                 {
                     var r = baseFrames[i];
                     int baseTop = r.Y;
-                    int baseBot = r.Y + r.Height;
+
+                    // 逐次追従（Sequential Adaptive Tracking）:
+                    // 直前コマの確定下端＋コマ間ギャップを理論位置とし、固定グリッドの累積ズレを完全解消
+                    if (i > 0 && format.Category != FilmSizeCategory.Size110)
+                    {
+                        int prevConfirmedBot = refinedTops[i - 1] + targetH;
+                        int expectedFromPrev = prevConfirmedBot + gapH;
+                        baseTop = Math.Max(prevConfirmedBot + 4, (expectedFromPrev + baseTop) / 2);
+                    }
+                    else if (i > 0 && format.Category == FilmSizeCategory.Size110)
+                    {
+                        // 110フィルムは各穴の実測位置から計算された baseFrames[i].Y を優先しつつ、前コマとの重なりを防止
+                        int prevConfirmedBot = refinedTops[i - 1] + targetH;
+                        if (baseTop < prevConfirmedBot + 4)
+                        {
+                            baseTop = prevConfirmedBot + 4;
+                        }
+                    }
+
+                    int baseBot = baseTop + targetH;
 
                     // 上辺 (Top) 探索: baseTop の前後 ±searchWinY
                     int topMin = Math.Max(0, baseTop - searchWinY);
@@ -1284,14 +1313,14 @@ namespace IrisPxS.Services
                     if (topConfident && botConfident)
                     {
                         int span = detectedBot - detectedTop;
-                        if (Math.Abs(span - targetH) <= (targetH * 0.08))
+                        if (Math.Abs(span - targetH) <= (targetH * 0.12))
                         {
                             double centerY = (detectedTop + detectedBot) / 2.0;
                             finalTop = (int)Math.Round(centerY - targetH / 2.0);
                         }
                         else
                         {
-                            // どちらのエッジを採用するか: 枠内画像テクスチャ量が大きい方を採択（逆方向配置を完全防止）
+                            // 枠内画像テクスチャ量が大きい方を採択
                             double detailTop = ComputeRegionTextureStdDev(gray, r.X, detectedTop, targetW, targetH);
                             double detailBot = ComputeRegionTextureStdDev(gray, r.X, detectedBot - targetH, targetW, targetH);
                             finalTop = detailTop >= detailBot ? detectedTop : (detectedBot - targetH);
@@ -1299,13 +1328,11 @@ namespace IrisPxS.Services
                     }
                     else if (topConfident)
                     {
-                        // detectedTop が写真の上辺か下辺かを検証
                         double detailInCandidate = ComputeRegionTextureStdDev(gray, r.X, detectedTop, targetW, targetH);
                         double detailAboveCandidate = ComputeRegionTextureStdDev(gray, r.X, detectedTop - targetH, targetW, targetH);
 
                         if (detailAboveCandidate > detailInCandidate * 1.35)
                         {
-                            // detectedTop は写真の下辺だった（逆配置防止: 上に向かって配置）
                             finalTop = detectedTop - targetH;
                         }
                         else
@@ -1315,13 +1342,11 @@ namespace IrisPxS.Services
                     }
                     else if (botConfident)
                     {
-                        // detectedBot が写真の下辺か上辺かを検証
                         double detailInCandidate = ComputeRegionTextureStdDev(gray, r.X, detectedBot - targetH, targetW, targetH);
                         double detailBelowCandidate = ComputeRegionTextureStdDev(gray, r.X, detectedBot, targetW, targetH);
 
                         if (detailBelowCandidate > detailInCandidate * 1.35)
                         {
-                            // detectedBot は写真の上辺だった（逆配置防止: 下に向かって配置）
                             finalTop = detectedBot;
                         }
                         else
@@ -1330,10 +1355,26 @@ namespace IrisPxS.Services
                         }
                     }
 
-                    // 理論ベース位置からの乖離が大きすぎる場合はフェイルセーフで理論位置へ
+                    // 探索窓を超えた極端な誤検出のみフェイルセーフで baseTop に戻す
                     if (Math.Abs(finalTop - baseTop) > searchWinY)
                     {
                         finalTop = baseTop;
+                    }
+
+                    // 前コマとの重なり防止ガード（最低 2px 離隔）
+                    if (i > 0 && refinedTops.Count > 0)
+                    {
+                        int minAllowedTop = refinedTops[i - 1] + targetH + 2;
+                        if (finalTop < minAllowedTop)
+                        {
+                            finalTop = minAllowedTop;
+                        }
+                    }
+
+                    // 下端はみ出しガード
+                    if (finalTop + targetH > scanMat.Height)
+                    {
+                        finalTop = Math.Max(0, scanMat.Height - targetH);
                     }
 
                     refinedTops.Add(finalTop);
@@ -1486,17 +1527,27 @@ namespace IrisPxS.Services
             }
             else
             {
-                // 横ストリップ: X軸＝コマ送り方向（巻き上げムラあり）、Y軸＝アパーチャ幅方向
-                int searchWinX = Math.Min(25, Math.Max(12, (int)(pitchPx * 0.06)));
-                int searchWinY = Math.Min(20, Math.Max(10, (int)(targetH * 0.06)));
+                // 横ストリップ: X軸＝コマ送り方向（巻き上げムラ・よれあり）、Y軸＝アパーチャ幅方向
+                int searchWinX = Math.Max(30, (int)(pitchPx * 0.18));
+                int searchWinY = Math.Max(20, (int)(targetH * 0.08));
 
                 var refinedLefts = new List<int>();
+                int gapW = Math.Max(4, pitchPx - targetW);
 
                 for (int i = 0; i < baseFrames.Count; i++)
                 {
                     var r = baseFrames[i];
                     int baseLeft = r.X;
-                    int baseRight = r.X + r.Width;
+
+                    // 逐次追従（Sequential Adaptive Tracking）
+                    if (i > 0)
+                    {
+                        int prevConfirmedRight = refinedLefts[i - 1] + targetW;
+                        int expectedFromPrev = prevConfirmedRight + gapW;
+                        baseLeft = Math.Max(prevConfirmedRight + 4, (expectedFromPrev + baseLeft) / 2);
+                    }
+
+                    int baseRight = baseLeft + targetW;
 
                     // 左辺 (Left) 探索
                     int leftMin = Math.Max(0, baseLeft - searchWinX);
@@ -1556,7 +1607,7 @@ namespace IrisPxS.Services
                     if (leftConfident && rightConfident)
                     {
                         int span = detectedRight - detectedLeft;
-                        if (Math.Abs(span - targetW) <= (targetW * 0.08))
+                        if (Math.Abs(span - targetW) <= (targetW * 0.12))
                         {
                             double centerX = (detectedLeft + detectedRight) / 2.0;
                             finalLeft = (int)Math.Round(centerX - targetW / 2.0);
@@ -1600,6 +1651,22 @@ namespace IrisPxS.Services
                     if (Math.Abs(finalLeft - baseLeft) > searchWinX)
                     {
                         finalLeft = baseLeft;
+                    }
+
+                    // 前コマとの重なり防止ガード（最低 2px 離隔）
+                    if (i > 0 && refinedLefts.Count > 0)
+                    {
+                        int minAllowedLeft = refinedLefts[i - 1] + targetW + 2;
+                        if (finalLeft < minAllowedLeft)
+                        {
+                            finalLeft = minAllowedLeft;
+                        }
+                    }
+
+                    // 右端はみ出しガード
+                    if (finalLeft + targetW > scanMat.Width)
+                    {
+                        finalLeft = Math.Max(0, scanMat.Width - targetW);
                     }
 
                     refinedLefts.Add(finalLeft);

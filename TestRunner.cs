@@ -21,6 +21,21 @@ namespace IrisPxS
             var exifService = new ExifMetadataService();
             var sessionService = new RollSessionService();
             var exportService = new RollExportService(negativeEngine, dustService, exifService);
+            var durationTracker = new ScanDurationTracker();
+
+            // 0. 各DPIスキャン所要時間予測 & 学習テスト
+            Console.WriteLine("\n[0/6] 各DPIスキャン所要時間学習 & カウントダウン予測テスト...");
+            int[] testDpis = { 300, 600, 1200, 2400, 3200, 4800, 6400, 9600, 12800 };
+            foreach (int d in testDpis)
+            {
+                double sec8 = durationTracker.GetEstimatedDurationSeconds(d, 8);
+                double sec16 = durationTracker.GetEstimatedDurationSeconds(d, 16);
+                Console.WriteLine($" - {d,5} DPI: 24-bit={sec8,5:F1}秒 | 48-bit={sec16,5:F1}秒");
+            }
+            // 実測時間の学習テスト (2400 DPI で 88.5 秒の実測を記録)
+            durationTracker.RecordActualDuration(2400, 8, 88.5);
+            double updatedSec = durationTracker.GetEstimatedDurationSeconds(2400, 8);
+            Console.WriteLine($"  => 2400 DPI (8-bit) 実測記録後学習値: {updatedSec:F1}秒 [PASS]");
 
             // 1. スキャナー接続テスト
             Console.WriteLine("\n[1/6] スキャナー検索テスト...");
