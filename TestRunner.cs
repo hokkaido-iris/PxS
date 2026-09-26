@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using IrisPxS.Models;
 using IrisPxS.Services;
 using OpenCvSharp;
@@ -113,16 +113,26 @@ namespace IrisPxS
 
                 // 2. 110 General 自動認識テスト
                 var format110 = FilmFormat.GetAllFormats().First(f => f.Type == FilmFormatType.Format110_General);
-                string real110Path = @"C:\Users\tarui\AppData\Local\IrisPxS\Sessions\13fb9715ab084ca3b565923566cf3420\Strips\d4464c14b2fb4697a2f0fe24b712aba7_raw.png";
+                string real110Path = @"C:\Users\tarui\AppData\Local\IrisPxS\Sessions\3af5cddf97314f388b106efe456f32cc\Strips\710a02b920bd47eb97a94d14ccf6a8bd_raw.png";
+                if (!File.Exists(real110Path))
+                {
+                    real110Path = @"C:\Users\tarui\AppData\Local\IrisPxS\Sessions\13fb9715ab084ca3b565923566cf3420\Strips\d4464c14b2fb4697a2f0fe24b712aba7_raw.png";
+                }
                 Mat target110Mat;
-                int testDpi;
+                int testDpi = 300;
                 if (File.Exists(real110Path))
                 {
                     using var full110 = Cv2.ImRead(real110Path);
-                    testDpi = 300;
-                    double sc = 300.0 / 2400.0;
-                    target110Mat = new Mat();
-                    Cv2.Resize(full110, target110Mat, new OpenCvSharp.Size((int)(full110.Width * sc), (int)(full110.Height * sc)));
+                    if (full110.Width > 2000)
+                    {
+                        double sc = 300.0 / 2400.0;
+                        target110Mat = new Mat();
+                        Cv2.Resize(full110, target110Mat, new OpenCvSharp.Size((int)(full110.Width * sc), (int)(full110.Height * sc)));
+                    }
+                    else
+                    {
+                        target110Mat = full110.Clone();
+                    }
                 }
                 else
                 {
@@ -344,10 +354,123 @@ namespace IrisPxS
 
             var zipPath = await exportService.ExportToZipAsync(roll, exportOpt);
             Console.WriteLine($"ZIP書き出し完了: {Path.GetFileName(zipPath)} ({new FileInfo(zipPath).Length / 1024} KB)");
+        }
 
-            Console.WriteLine("\n=================================================================");
-            Console.WriteLine(" 全検証テスト PASS! 正常動作を確認しました。");
-            Console.WriteLine("=================================================================");
+        public static async Task Run110DiagnosticAsync()
+        {
+            Console.OutputEncoding = System.Text.Encoding.UTF8;
+            Console.WriteLine("=== 110 Frame Detection Diagnostic ===");
+
+            string imgPath = @"C:\Users\tarui\AppData\Local\IrisPxS\Sessions\3af5cddf97314f388b106efe456f32cc\Strips\710a02b920bd47eb97a94d14ccf6a8bd_raw.png";
+            if (!File.Exists(imgPath))
+            {
+                Console.WriteLine($"Image not found: {imgPath}");
+                return;
+            }
+
+            using var scanMat = Cv2.ImRead(imgPath);
+            Console.WriteLine($"Image loaded: {scanMat.Width}x{scanMat.Height}");
+
+            var detector = new FrameDetectorService();
+            var format = FilmFormat.GetAllFormats().First(f => f.Type == FilmFormatType.Format110_General);
+            int dpi = 300;
+
+            double rawSkew = detector.DetectFilmSkewAngleFromMediaBoundary(scanMat);
+            Console.WriteLine($"Raw skew angle: {rawSkew:F2}°");
+
+            FrameDetectorService.GetFormatDimensions(format, true, dpi, out int targetW, out int targetH, out int pitchPx);
+            double stripTotalWidthMm = FrameDetectorService.GetFilmStripTotalWidthMm(format);
+            int expectedStripPx = (int)Math.Round(stripTotalWidthMm * dpi / 25.4);
+            Console.WriteLine($"Specs: targetW={targetW}, targetH={targetH}, pitchPx={pitchPx}, expectedStripPx={expectedStripPx}");
+
+            var (filmLeft, filmRight) = detector.DetectFilmHorizontalEdges(scanMat, expectedStripPx);
+            Console.WriteLine($"Film edges: Left={filmLeft}, Right={filmRight}, Width={filmRight - filmLeft}");
+
+            using var gray = new Mat();
+            Cv2.CvtColor(scanMat, gray, ColorConversionCodes.BGR2GRAY);
+            double mmToPx = (double)dpi / 25.4;
+            int searchMarginPx = (int)Math.Round(4.5 * mmToPx);
+            int minHolePx = (int)Math.Max(5, Math.Round(0.6 * mmToPx));
+            int maxHolePx = (int)Math.Round(3.5 * mmToPx);
+
+            var leftHoles = detector.FindPerforationHolesInMargin(gray, Math.Max(0, filmLeft - 10), Math.Min(searchMarginPx, scanMat.Width - filmLeft), minHolePx, maxHolePx);
+            var rightHoles = detector.FindPerforationHolesInMargin(gray, Math.Max(0, filmRight - searchMarginPx), Math.Min(searchMarginPx + 10, scanMat.Width - (filmRight - searchMarginPx)), minHolePx, maxHolePx);
+            Console.WriteLine($"Left holes: {leftHoles.Count}, Right holes: {rightHoles.Count}");
+            for (int i = 0; i < leftHoles.Count; i++)
+                Console.WriteLine($"  Left hole #{i+1}: X={leftHoles[i].X}, Y={leftHoles[i].Y}, W={leftHoles[i].Width}, H={leftHoles[i].Height}");
+            for (int i = 0; i < rightHoles.Count; i++)
+                Console.WriteLine($"  Right hole #{i+1}: X={rightHoles[i].X}, Y={rightHoles[i].Y}, W={rightHoles[i].Width}, H={rightHoles[i].Height}");
+
+            Console.WriteLine("\n--- Per-frame local analysis & Content Verification ---");
+            for (int i = 0; i < leftHoles.Count; i++)
+            {
+                var h = leftHoles[i];
+                int hCy = h.Y + h.Height / 2;
+                int frameCy = hCy + 300 / 2;
+                int topY = frameCy - targetH / 2;
+
+                // 局所フィルム境界
+                int subTop = Math.Max(0, topY);
+                int subH = Math.Min(targetH, scanMat.Height - subTop);
+                using var subRoi = new Mat(scanMat, new OpenCvSharp.Rect(0, subTop, scanMat.Width, subH));
+                var (localLeft, localRight) = detector.DetectFilmHorizontalEdges(subRoi, expectedStripPx);
+
+                // 各コマの実際の写真枠（Y方向のエッジ）を探索
+                int perfRightEdge = h.X + h.Width;
+                int rightMargin = (int)Math.Round(0.8 * mmToPx);
+                int localFrameX = localRight - rightMargin - targetW;
+                if (localFrameX < perfRightEdge + 2) localFrameX = perfRightEdge + 2;
+                if (localFrameX + targetW > localRight) localFrameX = localRight - targetW;
+
+                // Y方向の探索: topY の前後 ±40px で上下のエッジ（明暗境界）を探索
+                int scanYStart = Math.Max(0, topY - 30);
+                int scanYLen = Math.Min(scanMat.Height - scanYStart, targetH + 60);
+                using var frameColRoi = new Mat(scanMat, new OpenCvSharp.Rect(localFrameX + (int)(targetW * 0.15), scanYStart, (int)(targetW * 0.70), scanYLen));
+                using var colGray = new Mat();
+                Cv2.CvtColor(frameColRoi, colGray, ColorConversionCodes.BGR2GRAY);
+                using var rowMean = new Mat();
+                Cv2.Reduce(colGray, rowMean, ReduceDimension.Column, ReduceTypes.Avg, MatType.CV_32F);
+                float[] vals = new float[scanYLen];
+                System.Runtime.InteropServices.Marshal.Copy(rowMean.Data, vals, 0, scanYLen);
+
+                // 上下のエッジ探索
+                int bestTopK = -1;
+                float bestTopGrad = 0;
+                for (int k = 5; k < 55; k++)
+                {
+                    float g = Math.Abs(vals[k + 2] - vals[k - 2]);
+                    if (g > bestTopGrad) { bestTopGrad = g; bestTopK = k; }
+                }
+
+                int bestBotK = -1;
+                float bestBotGrad = 0;
+                for (int k = scanYLen - 55; k < scanYLen - 5; k++)
+                {
+                    float g = Math.Abs(vals[k + 2] - vals[k - 2]);
+                    if (g > bestBotGrad) { bestBotGrad = g; bestBotK = k; }
+                }
+
+                int actualTopY = bestTopK >= 0 ? scanYStart + bestTopK : topY;
+                int actualBotY = bestBotK >= 0 ? scanYStart + bestBotK : topY + targetH;
+
+                Console.WriteLine($"Frame #{i+1}: hole=[{h.X}..{h.X+h.Width}], localFilm=[{localLeft}..{localRight}] -> localX={localFrameX}");
+                Console.WriteLine($"   Y-analysis: holeCenterY={hCy}, baseTopY={topY} | topEdgeGrad={bestTopGrad:F1}(y={actualTopY}), botEdgeGrad={bestBotGrad:F1}(y={actualBotY}), span={actualBotY - actualTopY}");
+            }
+
+            var (straightMat, skew, frames) = detector.DetectAndStraighten(scanMat, format, dpi);
+            Console.WriteLine($"\nDetectAndStraighten: Skew={skew:F2}°, MatSize={straightMat.Width}x{straightMat.Height}, Frames={frames.Count}");
+            using var straightGray = new Mat();
+            Cv2.CvtColor(straightMat, straightGray, ColorConversionCodes.BGR2GRAY);
+            for (int i = 0; i < frames.Count; i++)
+            {
+                var r = frames[i];
+                using var frameRoi = new Mat(straightGray, r);
+                using var rightBorder = new Mat(frameRoi, new OpenCvSharp.Rect(r.Width - 4, 0, 4, r.Height));
+                Scalar rightMean = Cv2.Mean(rightBorder);
+                using var leftBorder = new Mat(frameRoi, new OpenCvSharp.Rect(0, 0, 4, r.Height));
+                Scalar leftMean = Cv2.Mean(leftBorder);
+                Console.WriteLine($"  Frame #{i+1}: X={r.X}, Y={r.Y}, W={r.Width}, H={r.Height}, Right={r.X + r.Width} | L_mean={leftMean.Val0:F1}, R_mean={rightMean.Val0:F1} {(rightMean.Val0 > 200 ? "[NG: 白ガラス混入]" : "[OK: フィルム内]")}");
+            }
         }
     }
 }

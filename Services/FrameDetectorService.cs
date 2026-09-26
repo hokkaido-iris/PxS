@@ -100,7 +100,7 @@ namespace IrisPxS.Services
                 Cv2.Canny(gray, edges, p.CannyThreshold1, p.CannyThreshold2);
 
                 bool isVertical = smallH >= smallW;
-                int minLineLen = (int)(isVertical ? smallH * 0.12 : smallW * 0.12);
+                int minLineLen = (int)Math.Max(30, isVertical ? smallH * 0.05 : smallW * 0.05);
 
                 // 確率的ハフ変換で長辺直線セグメントを検出
                 var lines = Cv2.HoughLinesP(edges, 1, Math.PI / 180.0, threshold: p.HoughThreshold, minLineLength: minLineLen, maxLineGap: 20);
@@ -153,8 +153,8 @@ namespace IrisPxS.Services
 
                 if (candidates.Count == 0) return 0.0;
 
-                // 角度ビン集計 (0.2° 単位で集計し、量子化ノイズによる分散を防止)
-                double binSize = 0.2;
+                // 角度ビン集計 (0.1° 単位で集計)
+                double binSize = 0.1;
                 var angleBins = new Dictionary<int, double>();
                 var binAngles = new Dictionary<int, List<(double angle, double weight)>>();
 
@@ -653,24 +653,51 @@ namespace IrisPxS.Services
                 }
                 bestX = Math.Max(0, Math.Min(bestX, scanMat.Width - targetW));
 
-                // 各穴に対応するコマ中心 Y 座標を算出
-                // 110カメラの規格: 穴 k の直後 (下側) に コマ k が配置される
-                var candidateCenterYs = new List<int>();
+                var baseFrames = new List<OpenCvSharp.Rect>();
                 for (int i = 0; i < chosenHoles.Count; i++)
                 {
                     int hCy = chosenHoles[i].Y + chosenHoles[i].Height / 2;
                     int frameCy = hCy + avgPitch / 2;
-                    candidateCenterYs.Add(frameCy);
-                }
-
-                var baseFrames = new List<OpenCvSharp.Rect>();
-                foreach (int cy in candidateCenterYs)
-                {
-                    int topY = cy - targetH / 2;
+                    int topY = frameCy - targetH / 2;
                     if (topY < 0 || topY + targetH > scanMat.Height) continue;
 
+                    // このコマの高さ周辺の局所フィルム帯を検出（傾きや微細な曲がりに完全追従）
+                    int subTop = Math.Max(0, topY);
+                    int subH = Math.Min(targetH, scanMat.Height - subTop);
+                    int localLeft = filmLeft;
+                    int localRight = filmRight;
+                    if (subH >= 20)
+                    {
+                        using var subRoi = new Mat(scanMat, new OpenCvSharp.Rect(0, subTop, scanMat.Width, subH));
+                        var (curLeft, curRight) = DetectFilmHorizontalEdges(subRoi, expectedStripPx);
+                        if (curRight > curLeft && (curRight - curLeft) >= targetW)
+                        {
+                            localLeft = curLeft;
+                            localRight = curRight;
+                        }
+                    }
+
+                    int localX;
+                    if (perfOnLeft)
+                    {
+                        int perfRightEdge = chosenHoles[i].X + chosenHoles[i].Width;
+                        int rightMargin = (int)Math.Round(0.8 * mmToPx);
+                        localX = localRight - rightMargin - targetW;
+                        if (localX < perfRightEdge + 2) localX = perfRightEdge + 2;
+                        if (localX + targetW > localRight) localX = localRight - targetW;
+                    }
+                    else
+                    {
+                        int perfLeftEdge = chosenHoles[i].X;
+                        int leftMargin = (int)Math.Round(0.8 * mmToPx);
+                        localX = localLeft + leftMargin;
+                        if (localX + targetW > perfLeftEdge - 2) localX = perfLeftEdge - 2 - targetW;
+                        if (localX < localLeft) localX = localLeft;
+                    }
+                    localX = Math.Max(0, Math.Min(localX, scanMat.Width - targetW));
+
                     // 露光有無の検証（未露光リーダーの除外）
-                    int checkX = bestX + (int)(targetW * 0.15);
+                    int checkX = localX + (int)(targetW * 0.15);
                     int checkY = topY + (int)(targetH * 0.15);
                     int checkW = (int)(targetW * 0.70);
                     int checkH = (int)(targetH * 0.70);
@@ -683,7 +710,7 @@ namespace IrisPxS.Services
                     bool isExposure = std >= 3.5 || (mean.Val0 > 30 && mean.Val0 < 195);
                     if (isExposure)
                     {
-                        baseFrames.Add(new OpenCvSharp.Rect(bestX, topY, targetW, targetH));
+                        baseFrames.Add(new OpenCvSharp.Rect(localX, topY, targetW, targetH));
                     }
                 }
 
@@ -701,7 +728,7 @@ namespace IrisPxS.Services
             return frames;
         }
 
-        private List<OpenCvSharp.Rect> FindPerforationHolesInMargin(Mat gray, int startX, int width, int minHolePx, int maxHolePx)
+        public List<OpenCvSharp.Rect> FindPerforationHolesInMargin(Mat gray, int startX, int width, int minHolePx, int maxHolePx)
         {
             var holes = new List<OpenCvSharp.Rect>();
             if (width <= 0 || startX < 0 || startX + width > gray.Width) return holes;
@@ -1376,10 +1403,11 @@ namespace IrisPxS.Services
                     bestX = xOffsets[xOffsets.Count / 2]; // 中央値
                 }
 
-                // 3. 最終矩形の組み立て & コマ間重なり防止 (幅・高さ・比率は画像認識によって不変、デフォルト比率を維持)
+                // 3. 各コマに対する局所フィルム境界追従・白ガラス侵入検証・配置 (全コマ独立アライメント)
                 int fixedW = Math.Min(targetW, scanMat.Width);
                 int fixedH = Math.Min(targetH, scanMat.Height);
-                int clampedX = Math.Max(0, Math.Min(bestX, scanMat.Width - fixedW));
+                double stripTotalWidthMm = GetFilmStripTotalWidthMm(format);
+                int expectedStripPx = (int)Math.Round(stripTotalWidthMm * ((double)fixedW / Math.Min(format.PhysicalWidthMm, format.PhysicalHeightMm)));
 
                 int prevBot = -1;
                 for (int i = 0; i < baseFrames.Count; i++)
@@ -1392,7 +1420,67 @@ namespace IrisPxS.Services
 
                     int clampedTop = Math.Max(0, Math.Min(top, scanMat.Height - fixedH));
 
-                    refinedList.Add(new OpenCvSharp.Rect(clampedX, clampedTop, fixedW, fixedH));
+                    // このコマの高さ (clampedTop 〜 clampedTop + fixedH) における局所フィルム境界を検出
+                    int subTop = Math.Max(0, clampedTop);
+                    int subH = Math.Min(fixedH, scanMat.Height - subTop);
+                    int localLeft = 0;
+                    int localRight = scanMat.Width;
+                    if (subH >= 20)
+                    {
+                        using var subRoi = new Mat(scanMat, new OpenCvSharp.Rect(0, subTop, scanMat.Width, subH));
+                        var (curLeft, curRight) = DetectFilmHorizontalEdges(subRoi, expectedStripPx > 0 ? expectedStripPx : fixedW);
+                        if (curRight > curLeft && (curRight - curLeft) >= fixedW)
+                        {
+                            localLeft = curLeft;
+                            localRight = curRight;
+                        }
+                    }
+
+                    // コマのX座標決定:
+                    // 110フィルムの場合は baseFrames[i].X (パーフォレーションと局所フィルム端に沿った位置) を最優先
+                    // それ以外のフィルム (135, 120 等) は局所フィルム帯の中央に配置
+                    int frameX = baseFrames[i].X;
+                    if (format.Category != FilmSizeCategory.Size110)
+                    {
+                        if (localRight > localLeft && (localRight - localLeft) >= fixedW)
+                        {
+                            frameX = localLeft + ((localRight - localLeft) - fixedW) / 2;
+                        }
+                    }
+                    else
+                    {
+                        if (localRight > localLeft && (localRight - localLeft) >= fixedW)
+                        {
+                            if (frameX + fixedW > localRight) frameX = localRight - fixedW;
+                            if (frameX < localLeft) frameX = localLeft;
+                        }
+                    }
+
+                    frameX = Math.Max(0, Math.Min(frameX, scanMat.Width - fixedW));
+
+                    // 白ガラス混入の精密検証 & 押し戻し
+                    if (frameX + fixedW <= scanMat.Width)
+                    {
+                        int checkW = Math.Min(6, fixedW);
+                        using var rightEdgeRoi = new Mat(gray, new OpenCvSharp.Rect(frameX + fixedW - checkW, clampedTop, checkW, fixedH));
+                        Scalar rightMean = Cv2.Mean(rightEdgeRoi);
+                        if (rightMean.Val0 > 200 && frameX > localLeft)
+                        {
+                            int shift = Math.Max(6, (frameX + fixedW) - localRight);
+                            frameX = Math.Max(localLeft, frameX - shift);
+                        }
+
+                        using var leftEdgeRoi = new Mat(gray, new OpenCvSharp.Rect(frameX, clampedTop, checkW, fixedH));
+                        Scalar leftMean = Cv2.Mean(leftEdgeRoi);
+                        if (leftMean.Val0 > 200 && frameX + fixedW < localRight)
+                        {
+                            int shift = Math.Max(6, localLeft - frameX);
+                            frameX = Math.Min(localRight - fixedW, frameX + shift);
+                        }
+                    }
+
+                    frameX = Math.Max(0, Math.Min(frameX, scanMat.Width - fixedW));
+                    refinedList.Add(new OpenCvSharp.Rect(frameX, clampedTop, fixedW, fixedH));
                     prevBot = clampedTop + fixedH;
                 }
             }
@@ -1579,10 +1667,11 @@ namespace IrisPxS.Services
                     bestY = yOffsets[yOffsets.Count / 2];
                 }
 
-                // 3. 最終矩形の組み立て & コマ間重なり防止 (幅・高さ・比率は画像認識によって不変、デフォルト比率を維持)
+                // 3. 各コマに対する局所フィルム境界追従・白ガラス侵入検証・配置 (全コマ独立アライメント)
                 int fixedW = Math.Min(targetW, scanMat.Width);
                 int fixedH = Math.Min(targetH, scanMat.Height);
-                int clampedY = Math.Max(0, Math.Min(bestY, scanMat.Height - fixedH));
+                double stripTotalWidthMm = GetFilmStripTotalWidthMm(format);
+                int expectedStripPx = (int)Math.Round(stripTotalWidthMm * ((double)fixedH / Math.Min(format.PhysicalWidthMm, format.PhysicalHeightMm)));
 
                 int prevRight = -1;
                 for (int i = 0; i < baseFrames.Count; i++)
@@ -1595,7 +1684,64 @@ namespace IrisPxS.Services
 
                     int clampedLeft = Math.Max(0, Math.Min(left, scanMat.Width - fixedW));
 
-                    refinedList.Add(new OpenCvSharp.Rect(clampedLeft, clampedY, fixedW, fixedH));
+                    // このコマの横位置 (clampedLeft 〜 clampedLeft + fixedW) における局所フィルム上下境界を検出
+                    int subLeft = Math.Max(0, clampedLeft);
+                    int subW = Math.Min(fixedW, scanMat.Width - subLeft);
+                    int localTop = 0;
+                    int localBottom = scanMat.Height;
+                    if (subW >= 20)
+                    {
+                        using var subRoi = new Mat(scanMat, new OpenCvSharp.Rect(subLeft, 0, subW, scanMat.Height));
+                        var (curTop, curBottom) = DetectFilmVerticalEdges(subRoi, expectedStripPx > 0 ? expectedStripPx : fixedH);
+                        if (curBottom > curTop && (curBottom - curTop) >= fixedH)
+                        {
+                            localTop = curTop;
+                            localBottom = curBottom;
+                        }
+                    }
+
+                    int frameY = baseFrames[i].Y;
+                    if (format.Category != FilmSizeCategory.Size110)
+                    {
+                        if (localBottom > localTop && (localBottom - localTop) >= fixedH)
+                        {
+                            frameY = localTop + ((localBottom - localTop) - fixedH) / 2;
+                        }
+                    }
+                    else
+                    {
+                        if (localBottom > localTop && (localBottom - localTop) >= fixedH)
+                        {
+                            if (frameY + fixedH > localBottom) frameY = localBottom - fixedH;
+                            if (frameY < localTop) frameY = localTop;
+                        }
+                    }
+
+                    frameY = Math.Max(0, Math.Min(frameY, scanMat.Height - fixedH));
+
+                    // 白ガラス混入の精密検証 & 押し戻し
+                    if (frameY + fixedH <= scanMat.Height)
+                    {
+                        int checkH = Math.Min(6, fixedH);
+                        using var bottomEdgeRoi = new Mat(gray, new OpenCvSharp.Rect(clampedLeft, frameY + fixedH - checkH, fixedW, checkH));
+                        Scalar botMean = Cv2.Mean(bottomEdgeRoi);
+                        if (botMean.Val0 > 200 && frameY > localTop)
+                        {
+                            int shift = Math.Max(6, (frameY + fixedH) - localBottom);
+                            frameY = Math.Max(localTop, frameY - shift);
+                        }
+
+                        using var topEdgeRoi = new Mat(gray, new OpenCvSharp.Rect(clampedLeft, frameY, fixedW, checkH));
+                        Scalar topMean = Cv2.Mean(topEdgeRoi);
+                        if (topMean.Val0 > 200 && frameY + fixedH < localBottom)
+                        {
+                            int shift = Math.Max(6, localTop - frameY);
+                            frameY = Math.Min(localBottom - fixedH, frameY + shift);
+                        }
+                    }
+
+                    frameY = Math.Max(0, Math.Min(frameY, scanMat.Height - fixedH));
+                    refinedList.Add(new OpenCvSharp.Rect(clampedLeft, frameY, fixedW, fixedH));
                     prevRight = clampedLeft + fixedW;
                 }
             }

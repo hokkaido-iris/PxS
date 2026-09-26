@@ -18,6 +18,11 @@ public partial class App : System.Windows.Application
             await TestRunner.RunVerificationAsync();
             Shutdown(0);
         }
+        else if (e.Args.Contains("--test-110"))
+        {
+            await TestRunner.Run110DiagnosticAsync();
+            Shutdown(0);
+        }
     }
 }
 
