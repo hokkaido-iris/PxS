@@ -105,7 +105,8 @@ namespace IrisPxS.Services
                 // 確率的ハフ変換で長辺直線セグメントを検出
                 var lines = Cv2.HoughLinesP(edges, 1, Math.PI / 180.0, threshold: p.HoughThreshold, minLineLength: minLineLen, maxLineGap: 20);
 
-                var angles = new List<double>();
+                // 検出ラインの詳細を収集
+                var candidates = new List<(double angle, double len, double cx, bool isBorder)>();
 
                 foreach (var line in lines)
                 {
@@ -114,6 +115,14 @@ namespace IrisPxS.Services
                     double len = Math.Sqrt(dx * dx + dy * dy);
                     if (len < minLineLen) continue;
 
+                    double cx = (line.P1.X + line.P2.X) / 2.0;
+                    double cy = (line.P1.Y + line.P2.Y) / 2.0;
+
+                    // スキャン最外縁（5%以内）の境界線はスキャナーガラス枠・マスク窓なのでフラグ
+                    bool isBorder = isVertical
+                        ? (cx < smallW * 0.05 || cx > smallW * 0.95)
+                        : (cy < smallH * 0.05 || cy > smallH * 0.95);
+
                     if (isVertical)
                     {
                         if (dy < 0) { dx = -dx; dy = -dy; }
@@ -121,7 +130,10 @@ namespace IrisPxS.Services
                         if (Math.Abs(dx / (dy > 0 ? dy : 1.0)) < 0.6)
                         {
                             double ang = Math.Atan2(dx, dy) * (180.0 / Math.PI);
-                            if (Math.Abs(ang) <= 45.0) angles.Add(ang);
+                            if (Math.Abs(ang) <= 45.0)
+                            {
+                                candidates.Add((ang, len, cx, isBorder));
+                            }
                         }
                     }
                     else
@@ -131,17 +143,87 @@ namespace IrisPxS.Services
                         if (Math.Abs(dy / (dx > 0 ? dx : 1.0)) < 0.6)
                         {
                             double ang = Math.Atan2(dy, dx) * (180.0 / Math.PI);
-                            if (Math.Abs(ang) <= 45.0) angles.Add(ang);
+                            if (Math.Abs(ang) <= 45.0)
+                            {
+                                candidates.Add((ang, len, cy, isBorder));
+                            }
                         }
                     }
                 }
 
-                if (angles.Count > 0)
+                if (candidates.Count == 0) return 0.0;
+
+                // 角度ビン集計 (0.2° 単位で集計し、量子化ノイズによる分散を防止)
+                double binSize = 0.2;
+                var angleBins = new Dictionary<int, double>();
+                var binAngles = new Dictionary<int, List<(double angle, double weight)>>();
+
+                foreach (var c in candidates)
                 {
-                    angles.Sort();
-                    double median = angles[angles.Count / 2];
-                    return Math.Round(median, 2);
+                    if (c.isBorder) continue;
+
+                    double weight = c.len;
+                    // 完全垂直線 (X1 == X2, |ang| < 0.04) に対するホルダーノイズ抑制
+                    if (Math.Abs(c.angle) < 0.04)
+                    {
+                        weight *= 0.3;
+                    }
+
+                    int binKey = (int)Math.Round(c.angle / binSize);
+                    if (!angleBins.ContainsKey(binKey))
+                    {
+                        angleBins[binKey] = 0;
+                        binAngles[binKey] = new List<(double, double)>();
+                    }
+                    angleBins[binKey] += weight;
+                    binAngles[binKey].Add((c.angle, weight));
                 }
+
+                // フィルムストリップの平行エッジ（左右に離れた位置でほぼ同じ角度を持つ直線）にボーナス
+                for (int i = 0; i < candidates.Count; i++)
+                {
+                    if (candidates[i].isBorder) continue;
+                    for (int j = i + 1; j < candidates.Count; j++)
+                    {
+                        if (candidates[j].isBorder) continue;
+                        double dist = Math.Abs(candidates[i].cx - candidates[j].cx);
+                        // フィルム幅相当の離れ（縮小画像上で 40〜300px）
+                        if (dist >= 40 && dist <= 300)
+                        {
+                            double angDiff = Math.Abs(candidates[i].angle - candidates[j].angle);
+                            if (angDiff <= 0.4)
+                            {
+                                double avgAng = (candidates[i].angle + candidates[j].angle) / 2.0;
+                                int binKey = (int)Math.Round(avgAng / binSize);
+                                double bonus = (candidates[i].len + candidates[j].len) * 0.75;
+                                if (!angleBins.ContainsKey(binKey))
+                                {
+                                    angleBins[binKey] = 0;
+                                    binAngles[binKey] = new List<(double, double)>();
+                                }
+                                angleBins[binKey] += bonus;
+                                binAngles[binKey].Add((avgAng, bonus));
+                            }
+                        }
+                    }
+                }
+
+                if (angleBins.Count > 0)
+                {
+                    var bestBin = angleBins.OrderByDescending(kv => kv.Value).First();
+                    if (binAngles.ContainsKey(bestBin.Key) && binAngles[bestBin.Key].Count > 0)
+                    {
+                        var items = binAngles[bestBin.Key];
+                        double totalW = items.Sum(x => x.weight);
+                        double weightedMean = totalW > 0 ? items.Sum(x => x.angle * x.weight) / totalW : items.Average(x => x.angle);
+                        return Math.Round(weightedMean, 2);
+                    }
+                    return Math.Round(bestBin.Key * binSize, 2);
+                }
+
+                // フォールバック: 単純メディアン
+                var allAngles = candidates.Select(c => c.angle).OrderBy(a => a).ToList();
+                return Math.Round(allAngles[allAngles.Count / 2], 2);
             }
             catch (Exception ex)
             {
@@ -174,8 +256,10 @@ namespace IrisPxS.Services
             rotMat.Set(1, 2, rotMat.At<double>(1, 2) + (newH - src.Height) / 2.0);
 
             var dst = new Mat();
+            // 超高解像度画像（2400 DPI等）の場合は高速かつ安全なバイリニア補間、それ以外はCubic補間
+            var interp = Math.Max(src.Width, src.Height) > 3500 ? InterpolationFlags.Linear : InterpolationFlags.Cubic;
             // 余白は透過スキャナーの素抜けガラス色（白色: 255, 255, 255）でパディング
-            Cv2.WarpAffine(src, dst, rotMat, new OpenCvSharp.Size(newW, newH), InterpolationFlags.Cubic, BorderTypes.Constant, new Scalar(255, 255, 255));
+            Cv2.WarpAffine(src, dst, rotMat, new OpenCvSharp.Size(newW, newH), interp, BorderTypes.Constant, new Scalar(255, 255, 255));
             return dst;
         }
 
@@ -259,10 +343,10 @@ namespace IrisPxS.Services
                     marginMm = 3.0;
                     break;
                 case FilmFormatType.Format110_General:
-                    // 110ポケットフィルム国際規格 (ISO 844): 13x17mm, ピッチ 25.0mm (マージン 8.0mm)
-                    dimAcross = 13.0;
-                    dimAlong = 17.0;
-                    marginMm = 8.0; // 17.0 + 8.0 = 25.0mm
+                    // 110ポケットフィルム国際規格 (ISO 844) 実効露光画面: 11.5x16.5mm, ピッチ 25.0mm (マージン 8.5mm)
+                    dimAcross = 11.5;
+                    dimAlong = 16.5;
+                    marginMm = 8.5; // 16.5 + 8.5 = 25.0mm
                     break;
                 default:
                     dimAcross = Math.Min(format.PhysicalWidthMm, format.PhysicalHeightMm);
@@ -316,6 +400,16 @@ namespace IrisPxS.Services
             int desiredCount = format.DefaultFramesPerStrip > 0 ? format.DefaultFramesPerStrip : 6;
             double stripTotalWidthMm = GetFilmStripTotalWidthMm(format);
             int expectedStripPx = (int)Math.Round(stripTotalWidthMm * dpi / 25.4);
+
+            // 110フィルムの場合、フィルム端の1コマ1穴パーフォレーション穴（送り穴）を利用した専用高精度検出を最優先実行
+            if (format.Category == FilmSizeCategory.Size110 && isVertical)
+            {
+                var perfFrames = Detect110FramesWithPerforations(scanMat, format, dpi, targetW, targetH, pitchPx, expectedStripPx, parameters);
+                if (perfFrames.Count > 0)
+                {
+                    return perfFrames;
+                }
+            }
 
             if (isVertical)
             {
@@ -422,6 +516,195 @@ namespace IrisPxS.Services
             }
 
             return frames;
+        }
+
+        /// <summary>
+        /// 110フィルム専用の高精度コマ検知:
+        /// フィルムマージンに1コマにつき1つ存在するパーフォレーション穴（透過光の白矩形）を検出し、
+        /// 各穴の中心 Y + ピッチ/2 を各コマの写真中心 Y として高精度に配置する。
+        /// </summary>
+        public List<OpenCvSharp.Rect> Detect110FramesWithPerforations(
+            Mat scanMat,
+            FilmFormat format,
+            int dpi,
+            int targetW,
+            int targetH,
+            int pitchPx,
+            int expectedStripPx,
+            DetectionParameters? parameters = null)
+        {
+            var frames = new List<OpenCvSharp.Rect>();
+            try
+            {
+                double mmToPx = (double)dpi / 25.4;
+                var (filmLeft, filmRight) = DetectFilmHorizontalEdges(scanMat, expectedStripPx);
+                if (filmRight <= filmLeft || (filmRight - filmLeft) < targetW)
+                {
+                    return frames;
+                }
+
+                using var gray = new Mat();
+                Cv2.CvtColor(scanMat, gray, ColorConversionCodes.BGR2GRAY);
+
+                // 左右両マージンでパーフォレーション穴を探索
+                // 穴の物理サイズ: 約 1.98mm x 1.27mm (透過光ガラスのため白 > 210)
+                int searchMarginPx = (int)Math.Round(4.5 * mmToPx);
+                int minHolePx = (int)Math.Max(5, Math.Round(0.6 * mmToPx));
+                int maxHolePx = (int)Math.Round(3.5 * mmToPx);
+
+                var leftHoles = FindPerforationHolesInMargin(gray, Math.Max(0, filmLeft - 10), Math.Min(searchMarginPx, scanMat.Width - filmLeft), minHolePx, maxHolePx);
+                var rightHoles = FindPerforationHolesInMargin(gray, Math.Max(0, filmRight - searchMarginPx), Math.Min(searchMarginPx + 10, scanMat.Width - (filmRight - searchMarginPx)), minHolePx, maxHolePx);
+
+                // ピッチ整合性（22mm〜28mmの間隔で連続する穴列）を評価
+                var validLeftHoles = FilterContinuousPerforations(leftHoles, pitchPx);
+                var validRightHoles = FilterContinuousPerforations(rightHoles, pitchPx);
+
+                List<OpenCvSharp.Rect> chosenHoles;
+                bool perfOnLeft;
+                if (validLeftHoles.Count >= validRightHoles.Count && validLeftHoles.Count >= 2)
+                {
+                    chosenHoles = validLeftHoles;
+                    perfOnLeft = true;
+                }
+                else if (validRightHoles.Count >= 2)
+                {
+                    chosenHoles = validRightHoles;
+                    perfOnLeft = false;
+                }
+                else
+                {
+                    // 穴が2個以上見つからない場合はフォールバックへ
+                    return frames;
+                }
+
+                // 実測ピッチの算出
+                int avgPitch = (int)Math.Round((double)(chosenHoles.Last().Y + chosenHoles.Last().Height / 2 - (chosenHoles.First().Y + chosenHoles.First().Height / 2)) / (chosenHoles.Count - 1));
+                if (avgPitch <= 0 || Math.Abs(avgPitch - pitchPx) > pitchPx * 0.15)
+                {
+                    avgPitch = pitchPx;
+                }
+
+                // 水平位置（X軸）の決定:
+                // 110フィルムはパーフォレーション穴の反対側にコマが寄っている
+                int bestX;
+                if (perfOnLeft)
+                {
+                    int perfRightEdge = chosenHoles.Max(h => h.X + h.Width);
+                    int rightMargin = (int)Math.Round(1.0 * mmToPx);
+                    bestX = Math.Max(perfRightEdge + (int)(0.5 * mmToPx), filmRight - rightMargin - targetW);
+                }
+                else
+                {
+                    int perfLeftEdge = chosenHoles.Min(h => h.X);
+                    int leftMargin = (int)Math.Round(1.0 * mmToPx);
+                    bestX = Math.Min(perfLeftEdge - (int)(0.5 * mmToPx) - targetW, filmLeft + leftMargin);
+                }
+                bestX = Math.Max(0, Math.Min(bestX, scanMat.Width - targetW));
+
+                // 各穴に対応するコマ中心 Y 座標を算出
+                // 110カメラの規格: 穴 k の直後 (下側) に コマ k が配置される
+                var candidateCenterYs = new List<int>();
+                for (int i = 0; i < chosenHoles.Count; i++)
+                {
+                    int hCy = chosenHoles[i].Y + chosenHoles[i].Height / 2;
+                    int frameCy = hCy + avgPitch / 2;
+                    candidateCenterYs.Add(frameCy);
+                }
+
+                var baseFrames = new List<OpenCvSharp.Rect>();
+                foreach (int cy in candidateCenterYs)
+                {
+                    int topY = cy - targetH / 2;
+                    if (topY < 0 || topY + targetH > scanMat.Height) continue;
+
+                    // 露光有無の検証（未露光リーダーの除外）
+                    int checkX = bestX + (int)(targetW * 0.15);
+                    int checkY = topY + (int)(targetH * 0.15);
+                    int checkW = (int)(targetW * 0.70);
+                    int checkH = (int)(targetH * 0.70);
+                    double std = ComputeRegionTextureStdDev(gray, checkX, checkY, checkW, checkH);
+
+                    using var roi = new Mat(gray, new OpenCvSharp.Rect(checkX, checkY, checkW, checkH));
+                    Scalar mean = Cv2.Mean(roi);
+
+                    // 露光されたコマ（テクスチャ変化または写真濃度あり）
+                    bool isExposure = std >= 3.5 || (mean.Val0 > 30 && mean.Val0 < 195);
+                    if (isExposure)
+                    {
+                        baseFrames.Add(new OpenCvSharp.Rect(bestX, topY, targetW, targetH));
+                    }
+                }
+
+                if (baseFrames.Count > 0)
+                {
+                    // 局所エッジ・プロファイルで微細な巻き上げズレを自動補正
+                    frames = RefineFrameBoundaries(scanMat, baseFrames, format, isVertical: true, targetW, targetH, avgPitch, parameters);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Detect110FramesWithPerforations error: {ex.Message}");
+            }
+
+            return frames;
+        }
+
+        private List<OpenCvSharp.Rect> FindPerforationHolesInMargin(Mat gray, int startX, int width, int minHolePx, int maxHolePx)
+        {
+            var holes = new List<OpenCvSharp.Rect>();
+            if (width <= 0 || startX < 0 || startX + width > gray.Width) return holes;
+
+            try
+            {
+                using var roi = new Mat(gray, new OpenCvSharp.Rect(startX, 0, width, gray.Height));
+                using var binary = new Mat();
+                Cv2.Threshold(roi, binary, 210, 255, ThresholdTypes.Binary);
+
+                Cv2.FindContours(binary, out var contours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
+                foreach (var c in contours)
+                {
+                    var br = Cv2.BoundingRect(c);
+                    if (br.Width >= minHolePx && br.Width <= maxHolePx &&
+                        br.Height >= minHolePx && br.Height <= maxHolePx)
+                    {
+                        holes.Add(new OpenCvSharp.Rect(br.X + startX, br.Y, br.Width, br.Height));
+                    }
+                }
+            }
+            catch { }
+
+            return holes.OrderBy(h => h.Y).ToList();
+        }
+
+        private List<OpenCvSharp.Rect> FilterContinuousPerforations(List<OpenCvSharp.Rect> holes, int expectedPitchPx)
+        {
+            var result = new List<OpenCvSharp.Rect>();
+            if (holes.Count < 2) return result;
+
+            int minPitch = (int)(expectedPitchPx * 0.85);
+            int maxPitch = (int)(expectedPitchPx * 1.15);
+
+            for (int i = 0; i < holes.Count; i++)
+            {
+                // 隣接する穴との距離がピッチの倍数に近いものを連続系列として採用
+                bool hasPartner = false;
+                for (int j = 0; j < holes.Count; j++)
+                {
+                    if (i == j) continue;
+                    int dy = Math.Abs((holes[i].Y + holes[i].Height / 2) - (holes[j].Y + holes[j].Height / 2));
+                    if ((dy >= minPitch && dy <= maxPitch) || (dy >= minPitch * 2 && dy <= maxPitch * 2))
+                    {
+                        hasPartner = true;
+                        break;
+                    }
+                }
+                if (hasPartner)
+                {
+                    result.Add(holes[i]);
+                }
+            }
+
+            return result;
         }
 
         /// <summary>

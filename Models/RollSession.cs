@@ -66,6 +66,8 @@ namespace IrisPxS.Models
 
         public int ScanDpi { get; set; } = 300;
         public int FrameCoordinatesDpi { get; set; } = 300;
+        public int PreScanWidth { get; set; } = 0;
+        public int PreScanHeight { get; set; } = 0;
         public double SkewAngle { get; set; } = 0.0;
         public DateTime ScannedAt { get; set; } = DateTime.Now;
 

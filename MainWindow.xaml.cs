@@ -429,15 +429,26 @@ namespace IrisPxS
                 _currentIrMat = irMat;
 
                 // 本スキャンの場合、PreScanで検知された傾き角度を自動適用して正立補正
-                if (!isPreScan && Math.Abs(strip.SkewAngle) >= 0.1)
+                // もし未検知（0.0°）の場合は、本スキャン画像から直接高精度に傾きを再検知
+                double targetSkew = strip.SkewAngle;
+                if (!isPreScan && Math.Abs(targetSkew) < 0.1)
                 {
-                    var straight = _detectorService.StraightenImage(_currentScanMat, strip.SkewAngle);
+                    targetSkew = _detectorService.DetectFilmSkewAngleFromMediaBoundary(_currentScanMat);
+                    if (Math.Abs(targetSkew) >= 0.1)
+                    {
+                        strip.SkewAngle = targetSkew;
+                    }
+                }
+
+                if (!isPreScan && Math.Abs(targetSkew) >= 0.1)
+                {
+                    var straight = _detectorService.StraightenImage(_currentScanMat, targetSkew);
                     _currentScanMat.Dispose();
                     _currentScanMat = straight;
 
                     if (_currentIrMat != null && !_currentIrMat.IsDisposed)
                     {
-                        var straightIr = _detectorService.StraightenImage(_currentIrMat, strip.SkewAngle);
+                        var straightIr = _detectorService.StraightenImage(_currentIrMat, targetSkew);
                         _currentIrMat.Dispose();
                         _currentIrMat = straightIr;
                     }
@@ -458,6 +469,8 @@ namespace IrisPxS
                     // Pre-Scan: 自動コマ認識を実行してコマ枠を検出
                     strip.Status = StripStatus.PreScanned;
                     PerformAutoDetectFramesOnStrip(strip, _currentScanMat, _currentIrMat);
+                    strip.PreScanWidth = _currentScanMat.Width;
+                    strip.PreScanHeight = _currentScanMat.Height;
                     TxtStatus.Text = $"{strip.Name}: Pre-Scan完了 ({strip.Frames.Count}コマ検出)。コマ枠を確認・微調整して [Scan] を実行してください。";
                 }
                 else
@@ -467,36 +480,33 @@ namespace IrisPxS
                     if (strip.Frames.Count > 0)
                     {
                         int sourceDpi = strip.FrameCoordinatesDpi > 0 ? strip.FrameCoordinatesDpi : 300;
-                        if (sourceDpi != dpi)
+                        double scaleX = (double)dpi / sourceDpi;
+                        double scaleY = (double)dpi / sourceDpi;
+
+                        // PreScan実寸画像サイズが記録されている場合は実寸ピクセル比率で精密スケーリング
+                        if (strip.PreScanWidth > 0 && strip.PreScanHeight > 0)
                         {
-                            double scale = (double)dpi / sourceDpi;
-                            foreach (var f in strip.Frames)
-                            {
-                                var r = f.CropRect;
-                                int sx = (int)Math.Round(r.X * scale);
-                                int sy = (int)Math.Round(r.Y * scale);
-                                int sw = (int)Math.Round(r.Width * scale);
-                                int sh = (int)Math.Round(r.Height * scale);
-
-                                sx = Math.Max(0, Math.Min(sx, _currentScanMat.Width - 10));
-                                sy = Math.Max(0, Math.Min(sy, _currentScanMat.Height - 10));
-                                sw = Math.Min(sw, _currentScanMat.Width - sx);
-                                sh = Math.Min(sh, _currentScanMat.Height - sy);
-
-                                f.CropRect = new OpenCvSharp.Rect(sx, sy, sw, sh);
-                                f.RawImagePath = strip.FullScanImagePath;
-                                f.IrImagePath = strip.FullScanIrPath;
-                                UpdateFrameThumbnail(f);
-                            }
+                            scaleX = (double)_currentScanMat.Width / strip.PreScanWidth;
+                            scaleY = (double)_currentScanMat.Height / strip.PreScanHeight;
                         }
-                        else
+
+                        foreach (var f in strip.Frames)
                         {
-                            foreach (var f in strip.Frames)
-                            {
-                                f.RawImagePath = strip.FullScanImagePath;
-                                f.IrImagePath = strip.FullScanIrPath;
-                                UpdateFrameThumbnail(f);
-                            }
+                            var r = f.CropRect;
+                            int sx = (int)Math.Round(r.X * scaleX);
+                            int sy = (int)Math.Round(r.Y * scaleY);
+                            int sw = (int)Math.Round(r.Width * scaleX);
+                            int sh = (int)Math.Round(r.Height * scaleY);
+
+                            sx = Math.Max(0, Math.Min(sx, _currentScanMat.Width - 10));
+                            sy = Math.Max(0, Math.Min(sy, _currentScanMat.Height - 10));
+                            sw = Math.Min(sw, _currentScanMat.Width - sx);
+                            sh = Math.Min(sh, _currentScanMat.Height - sy);
+
+                            f.CropRect = new OpenCvSharp.Rect(sx, sy, sw, sh);
+                            f.RawImagePath = strip.FullScanImagePath;
+                            f.IrImagePath = strip.FullScanIrPath;
+                            UpdateFrameThumbnail(f);
                         }
                         strip.FrameCoordinatesDpi = dpi;
                     }
@@ -1169,7 +1179,10 @@ namespace IrisPxS
 
             var (straightenedMat, skewAngle, detectedRects) = _detectorService.DetectAndStraighten(scanMat, format, dpi);
 
-            strip.SkewAngle = skewAngle;
+            if (Math.Abs(skewAngle) >= 0.1)
+            {
+                strip.SkewAngle = skewAngle;
+            }
             strip.FrameCoordinatesDpi = dpi;
 
             // 傾きが検知された場合 (0.1度以上)、画像を正立（回転補正）した画像に差し替え
@@ -1196,6 +1209,9 @@ namespace IrisPxS
             {
                 straightenedMat.Dispose();
             }
+
+            strip.PreScanWidth = _currentScanMat.Width;
+            strip.PreScanHeight = _currentScanMat.Height;
 
             strip.Frames.Clear();
 

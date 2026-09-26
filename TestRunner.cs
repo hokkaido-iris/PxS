@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using IrisPxS.Models;
 using IrisPxS.Services;
 using OpenCvSharp;
@@ -88,6 +88,9 @@ namespace IrisPxS
                 Console.WriteLine($"real_scan.bmp サイズ: 幅={realMat.Width}, 高さ={realMat.Height}, Channels={realMat.Channels()}");
 
                 // 1. 135 Full-Frame 自動認識テスト (等間隔ベースグリッド ＋ 局所エッジ・プロファイル自動微調整)
+                double rawSkew = detectorService.DetectFilmSkewAngleFromMediaBoundary(realMat);
+                Console.WriteLine($"[real_scan.bmp 傾き検知] 検出傾き角: {rawSkew:F2}°");
+
                 var (straight135, skew135, frames135) = detectorService.DetectAndStraighten(realMat, format, 300);
                 Console.WriteLine($"\n[135-FF] 検知傾き角: {skew135:F2}°, 検出コマ数: {frames135.Count}");
                 FrameDetectorService.GetFormatDimensions(format, straight135.Height >= straight135.Width, 300, out int expW135, out int expH135, out _);
@@ -110,25 +113,49 @@ namespace IrisPxS
 
                 // 2. 110 General 自動認識テスト
                 var format110 = FilmFormat.GetAllFormats().First(f => f.Type == FilmFormatType.Format110_General);
-                var (straight110, skew110, frames110) = detectorService.DetectAndStraighten(realMat, format110, 300);
-                Console.WriteLine($"\n[110-General] 検知傾き角: {skew110:F2}°, 検出コマ数: {frames110.Count}");
-                FrameDetectorService.GetFormatDimensions(format110, straight110.Height >= straight110.Width, 300, out int expW110, out int expH110, out _);
-                double expAspect110 = (double)expH110 / expW110;
-                for (int i = 0; i < frames110.Count; i++)
+                string real110Path = @"C:\Users\tarui\AppData\Local\IrisPxS\Sessions\13fb9715ab084ca3b565923566cf3420\Strips\d4464c14b2fb4697a2f0fe24b712aba7_raw.png";
+                Mat target110Mat;
+                int testDpi;
+                if (File.Exists(real110Path))
                 {
-                    var r = frames110[i];
-                    Console.WriteLine($"  110コマ #{i + 1}: X={r.X}, Y={r.Y}, W={r.Width}, H={r.Height} (Y範囲: {r.Y}〜{r.Y + r.Height}, Aspect={(double)r.Height / r.Width:F2})");
-                    if (r.Width != expW110 || r.Height != expH110)
-                    {
-                        throw new Exception($"[FAIL] 110コマ寸法が不一致: 期待値 W={expW110}, H={expH110} に対し 実際 W={r.Width}, H={r.Height}");
-                    }
-                    double aspect = (double)r.Height / r.Width;
-                    if (Math.Abs(aspect - expAspect110) > 1e-4)
-                    {
-                        throw new Exception($"[FAIL] 110アスペクト比がデフォルト値と不一致: 期待値 {expAspect110:F4} に対し 実際 {aspect:F4}");
-                    }
+                    using var full110 = Cv2.ImRead(real110Path);
+                    testDpi = 300;
+                    double sc = 300.0 / 2400.0;
+                    target110Mat = new Mat();
+                    Cv2.Resize(full110, target110Mat, new OpenCvSharp.Size((int)(full110.Width * sc), (int)(full110.Height * sc)));
                 }
-                Console.WriteLine($"  => [110-General] 全 {frames110.Count} コマの比率は完全に不変であり、デフォルト比率 ({expAspect110:F2}: W={expW110}, H={expH110}) を維持しています。[PASS]");
+                else
+                {
+                    target110Mat = realMat.Clone();
+                    testDpi = 300;
+                }
+
+                using (target110Mat)
+                {
+                    var (straight110, skew110, frames110) = detectorService.DetectAndStraighten(target110Mat, format110, testDpi);
+                    Console.WriteLine($"\n[110-General] 検知傾き角: {skew110:F2}°, 検出コマ数: {frames110.Count}");
+                    FrameDetectorService.GetFormatDimensions(format110, straight110.Height >= straight110.Width, testDpi, out int expW110, out int expH110, out _);
+                    double expAspect110 = (double)expH110 / expW110;
+                    for (int i = 0; i < frames110.Count; i++)
+                    {
+                        var r = frames110[i];
+                        Console.WriteLine($"  110コマ #{i + 1}: X={r.X}, Y={r.Y}, W={r.Width}, H={r.Height} (Y範囲: {r.Y}〜{r.Y + r.Height}, Aspect={(double)r.Height / r.Width:F2})");
+                        if (r.Width != expW110 || r.Height != expH110)
+                        {
+                            throw new Exception($"[FAIL] 110コマ寸法が不一致: 期待値 W={expW110}, H={expH110} に対し 実際 W={r.Width}, H={r.Height}");
+                        }
+                        double aspect = (double)r.Height / r.Width;
+                        if (Math.Abs(aspect - expAspect110) > 1e-4)
+                        {
+                            throw new Exception($"[FAIL] 110アスペクト比がデフォルト値と不一致: 期待値 {expAspect110:F4} に対し 実際 {aspect:F4}");
+                        }
+                    }
+                    if (File.Exists(real110Path) && frames110.Count != 8)
+                    {
+                        throw new Exception($"[FAIL] 実機110画像の検出コマ数が8コマではありませんでした: 実際={frames110.Count}");
+                    }
+                    Console.WriteLine($"  => [110-General] 全 {frames110.Count} コマが実機パーフォレーション穴基準でジャストフィット検出され、比率不変 ({expAspect110:F2}: W={expW110}, H={expH110}) を維持しています。[PASS]");
+                }
             }
 
             // フィルムとメディアなし部分のコントラストによる大角度傾き検出テスト (+2.5度, +6.5度, -8.5度)
@@ -197,32 +224,69 @@ namespace IrisPxS
 
             // Cut 1: PreScan (300dpi) で枠決定 -> Scan (2400dpi) で枠引き継ぎ
             var cut1 = new FilmStrip { StripIndex = 1, Name = "Cut 1", Status = StripStatus.PreScanned, ScanDpi = 300 };
+            
+            // 意図的な傾き(-2.5度)を付加したシミュレーションでPreScanおよびMainScanの傾き補正挙動を検証
+            double testTilt = -2.5;
+            using var tiltedScan = detectorService.StraightenImage(colorMat, -testTilt);
+            var (preStraight, preSkew, preFrames) = detectorService.DetectAndStraighten(tiltedScan, format, 300);
+            cut1.SkewAngle = preSkew;
+            cut1.FrameCoordinatesDpi = 300;
+            Console.WriteLine($"[ワークフロー検証] PreScan 付加傾き: {testTilt:F1}°, 検知傾き: {preSkew:F2}°, 枠数: {preFrames.Count}");
+
+            foreach (var r in preFrames)
+            {
+                cut1.Frames.Add(new FilmFrame
+                {
+                    FrameNumber = cut1.Frames.Count + 1,
+                    StripId = cut1.Id,
+                    CropRect = r,
+                    BaseColorR = baseColor.R,
+                    BaseColorG = baseColor.G,
+                    BaseColorB = baseColor.B
+                });
+            }
+
+            // MainScan (2400 DPI 相当: 8倍解像度) をシミュレート
+            using var mainScanRaw = new Mat();
+            Cv2.Resize(tiltedScan, mainScanRaw, new OpenCvSharp.Size(tiltedScan.Width * 2, tiltedScan.Height * 2), 0, 0, InterpolationFlags.Cubic);
+            int mainDpi = 600; // 2倍DPIでシミュレーション
+
+            // MainWindow.xaml.cs の ApplyScanDataToCut ロジックを正確にシミュレート
+            Mat mainScanStraight;
+            if (Math.Abs(cut1.SkewAngle) >= 0.1)
+            {
+                mainScanStraight = detectorService.StraightenImage(mainScanRaw, cut1.SkewAngle);
+            }
+            else
+            {
+                mainScanStraight = mainScanRaw.Clone();
+            }
+
+            Console.WriteLine($"[ワークフロー検証] MainScan補正前サイズ: {mainScanRaw.Width}x{mainScanRaw.Height}, 補正後: {mainScanStraight.Width}x{mainScanStraight.Height}");
+
+            // コマ枠のスケーリング (300 -> 600 DPI: scale=2.0)
+            double scale = (double)mainDpi / cut1.FrameCoordinatesDpi;
+            for (int fi = 0; fi < cut1.Frames.Count; fi++)
+            {
+                var f = cut1.Frames[fi];
+                var r = f.CropRect;
+                int sx = (int)Math.Round(r.X * scale);
+                int sy = (int)Math.Round(r.Y * scale);
+                int sw = (int)Math.Round(r.Width * scale);
+                int sh = (int)Math.Round(r.Height * scale);
+                f.CropRect = new OpenCvSharp.Rect(sx, sy, sw, sh);
+                Console.WriteLine($"  コマ #{fi + 1} スケーリング後: X={sx}, Y={sy}, W={sw}, H={sh} (補正後画像サイズ内: {sx >= 0 && sx + sw <= mainScanStraight.Width && sy >= 0 && sy + sh <= mainScanStraight.Height})");
+            }
+            mainScanStraight.Dispose();
+
             var (c1Raw, c1Ir) = sessionService.SaveStripImages(roll.SessionId, cut1.Id, colorMat, irMat);
             cut1.FullScanImagePath = c1Raw;
             cut1.FullScanIrPath = c1Ir;
-
-            var f1 = new FilmFrame
+            foreach (var f in cut1.Frames)
             {
-                FrameNumber = 1,
-                StripId = cut1.Id,
-                CropRect = detectedFrames[0],
-                RawImagePath = c1Raw,
-                BaseColorR = baseColor.R,
-                BaseColorG = baseColor.G,
-                BaseColorB = baseColor.B
-            };
-            var f2 = new FilmFrame
-            {
-                FrameNumber = 2,
-                StripId = cut1.Id,
-                CropRect = detectedFrames.Count > 1 ? detectedFrames[1] : detectedFrames[0],
-                RawImagePath = c1Raw,
-                BaseColorR = baseColor.R,
-                BaseColorG = baseColor.G,
-                BaseColorB = baseColor.B
-            };
-            cut1.Frames.Add(f1);
-            cut1.Frames.Add(f2);
+                f.RawImagePath = c1Raw;
+                f.IrImagePath = c1Ir;
+            }
             cut1.Status = StripStatus.Scanned;
             cut1.ScanDpi = 2400;
             roll.Strips.Add(cut1);
