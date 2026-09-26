@@ -159,11 +159,8 @@
                     <Button x:Name="BtnScan" Content="Scan" Width="110" Height="32" FontWeight="Bold" Margin="6,0,0,0" Background="#D5E8FF" BorderBrush="#0078D7" Foreground="#004085" Click="BtnScanCurrent_Click" ToolTip="選択コマまたは指定解像度で本スキャンを実行 (青)" />
                 </StackPanel>
 
-                <!-- 中揃え: IRIS PxS -->
-                <StackPanel Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center" Orientation="Horizontal">
-                    <TextBlock Text="IRIS PxS" FontSize="20" FontWeight="Bold" Foreground="#1E1E1E" FontFamily="Segoe UI, Yu Gothic UI" VerticalAlignment="Center" Margin="0,0,8,0" />
-                    <TextBlock Text="Film Scanner Suite" FontSize="11" Foreground="#666666" VerticalAlignment="Bottom" Margin="0,0,0,3" />
-                </StackPanel>
+                <!-- 中揃え: IRIS PxS タイポグラフィ -->
+                <TextBlock Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="21" Foreground="#1E1E1E"><Run Text="IRIS " FontFamily="Segoe UI, Yu Gothic UI" FontWeight="Bold" /><Run Text="P" FontFamily="Century Schoolbook" FontStyle="Normal" FontWeight="Bold" /><Run Text="x" FontFamily="Century Schoolbook" FontStyle="Italic" FontWeight="Bold" /><Run Text="S" FontFamily="Meiryo UI" FontStyle="Normal" FontWeight="Bold" /></TextBlock>
 
                 <!-- 右詰め: ▼接続機器, 接続状況LED, Scanner Setting (正方形歯車) -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
