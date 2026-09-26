@@ -8,6 +8,17 @@ using IrisPxS.Models;
 
 namespace IrisPxS.Controls
 {
+    public class StripCanvasItem
+    {
+        public FilmStrip Strip { get; set; } = null!;
+        public BitmapSource? ImageSource { get; set; }
+        public int LogicalWidth { get; set; }
+        public int LogicalHeight { get; set; }
+        public double LayoutX { get; set; }
+        public double LayoutY { get; set; }
+        public bool IsActive { get; set; }
+    }
+
     public class FrameCanvas : Canvas
     {
         public static readonly DependencyProperty ImageSourceProperty =
@@ -97,8 +108,26 @@ namespace IrisPxS.Controls
         public event EventHandler<FilmFrame>? FrameSelected;
         public event EventHandler? FrameModified;
         public event EventHandler<double>? ZoomChanged;
+        public event EventHandler<FilmStrip>? StripSelected;
 
         public double ZoomScale => _scale;
+
+        // マルチストリップ（全スキャン横並び）管理
+        private readonly List<StripCanvasItem> _multiStripItems = new();
+        public IReadOnlyList<StripCanvasItem> MultiStripItems => _multiStripItems;
+        private double _totalMultiWidth = 0;
+        private double _totalMultiHeight = 0;
+        private bool _isMultiStripMode = true;
+        public bool IsMultiStripMode
+        {
+            get => _isMultiStripMode;
+            set
+            {
+                _isMultiStripMode = value;
+                InvalidateVisual();
+                UpdateScrollBars();
+            }
+        }
 
         private double _scale = 1.0;
         private Point _panOffset = new Point(0, 0);
@@ -111,6 +140,71 @@ namespace IrisPxS.Controls
         private Border? _cornerBorder;
         private bool _isUpdatingScroll = false;
         private const double CanvasPadding = 30.0;
+        private const double StripHeaderHeight = 32.0;
+        private const double StripGap = 40.0;
+
+        public void SetMultiStrips(
+            IEnumerable<FilmStrip>? strips,
+            FilmStrip? activeStrip,
+            Func<FilmStrip, BitmapSource?> imageProvider)
+        {
+            _multiStripItems.Clear();
+
+            if (strips == null || !strips.Any())
+            {
+                _totalMultiWidth = 0;
+                _totalMultiHeight = 0;
+                UpdateScrollBars();
+                InvalidateVisual();
+                return;
+            }
+
+            double currentX = CanvasPadding;
+            double maxHeight = 800;
+
+            foreach (var strip in strips)
+            {
+                var img = imageProvider(strip);
+                int logW = strip.PreScanWidth > 0 ? strip.PreScanWidth : (img != null ? img.PixelWidth : 3000);
+                int logH = strip.PreScanHeight > 0 ? strip.PreScanHeight : (img != null ? img.PixelHeight : 800);
+
+                if (logH > maxHeight) maxHeight = logH;
+
+                var item = new StripCanvasItem
+                {
+                    Strip = strip,
+                    ImageSource = img,
+                    LogicalWidth = logW,
+                    LogicalHeight = logH,
+                    LayoutX = currentX,
+                    LayoutY = CanvasPadding + StripHeaderHeight,
+                    IsActive = (strip == activeStrip)
+                };
+
+                _multiStripItems.Add(item);
+                currentX += logW + StripGap;
+            }
+
+            _totalMultiWidth = currentX - StripGap + CanvasPadding;
+            _totalMultiHeight = maxHeight + StripHeaderHeight + CanvasPadding * 2;
+
+            UpdateScrollBars();
+            InvalidateVisual();
+        }
+
+        public double GetContentLogicalWidth()
+        {
+            if (_isMultiStripMode && _multiStripItems.Count > 0)
+                return _totalMultiWidth;
+            return LogicalImageWidth > 0 ? LogicalImageWidth : (ImageSource?.PixelWidth ?? 0);
+        }
+
+        public double GetContentLogicalHeight()
+        {
+            if (_isMultiStripMode && _multiStripItems.Count > 0)
+                return _totalMultiHeight;
+            return LogicalImageHeight > 0 ? LogicalImageHeight : (ImageSource?.PixelHeight ?? 0);
+        }
 
         // ドラッグ移動・リサイズ管理
         private FilmFrame? _draggedFrame = null;
@@ -157,10 +251,12 @@ namespace IrisPxS.Controls
 
         private void OnScrollBarScroll(object sender, System.Windows.Controls.Primitives.ScrollEventArgs e)
         {
-            if (_isUpdatingScroll || ImageSource == null) return;
+            if (_isUpdatingScroll) return;
+            if (!_isMultiStripMode && ImageSource == null) return;
+            if (_isMultiStripMode && _multiStripItems.Count == 0) return;
 
-            int logicalW = LogicalImageWidth > 0 ? LogicalImageWidth : ImageSource.PixelWidth;
-            int logicalH = LogicalImageHeight > 0 ? LogicalImageHeight : ImageSource.PixelHeight;
+            double logicalW = GetContentLogicalWidth();
+            double logicalH = GetContentLogicalHeight();
             double contentW = logicalW * _scale;
             double contentH = logicalH * _scale;
 
@@ -193,7 +289,8 @@ namespace IrisPxS.Controls
 
             try
             {
-                if (ImageSource == null)
+                bool hasContent = (_isMultiStripMode && _multiStripItems.Count > 0) || ImageSource != null;
+                if (!hasContent)
                 {
                     if (_hScrollBar != null) { _hScrollBar.IsEnabled = false; _hScrollBar.Visibility = Visibility.Collapsed; }
                     if (_vScrollBar != null) { _vScrollBar.IsEnabled = false; _vScrollBar.Visibility = Visibility.Collapsed; }
@@ -201,8 +298,8 @@ namespace IrisPxS.Controls
                     return;
                 }
 
-                int logicalW = LogicalImageWidth > 0 ? LogicalImageWidth : ImageSource.PixelWidth;
-                int logicalH = LogicalImageHeight > 0 ? LogicalImageHeight : ImageSource.PixelHeight;
+                double logicalW = GetContentLogicalWidth();
+                double logicalH = GetContentLogicalHeight();
                 double contentW = logicalW * _scale;
                 double contentH = logicalH * _scale;
 
@@ -276,10 +373,11 @@ namespace IrisPxS.Controls
 
         private void ClampPanOffset()
         {
-            if (ImageSource == null || ActualWidth <= 0 || ActualHeight <= 0) return;
+            bool hasContent = (_isMultiStripMode && _multiStripItems.Count > 0) || ImageSource != null;
+            if (!hasContent || ActualWidth <= 0 || ActualHeight <= 0) return;
 
-            int logicalW = LogicalImageWidth > 0 ? LogicalImageWidth : ImageSource.PixelWidth;
-            int logicalH = LogicalImageHeight > 0 ? LogicalImageHeight : ImageSource.PixelHeight;
+            double logicalW = GetContentLogicalWidth();
+            double logicalH = GetContentLogicalHeight();
             double contentW = logicalW * _scale;
             double contentH = logicalH * _scale;
 
@@ -316,10 +414,11 @@ namespace IrisPxS.Controls
 
         public void ResetView()
         {
-            if (ImageSource == null || ActualWidth <= 0 || ActualHeight <= 0) return;
+            bool hasContent = (_isMultiStripMode && _multiStripItems.Count > 0) || ImageSource != null;
+            if (!hasContent || ActualWidth <= 0 || ActualHeight <= 0) return;
 
-            int logicalW = LogicalImageWidth > 0 ? LogicalImageWidth : ImageSource.PixelWidth;
-            int logicalH = LogicalImageHeight > 0 ? LogicalImageHeight : ImageSource.PixelHeight;
+            double logicalW = GetContentLogicalWidth();
+            double logicalH = GetContentLogicalHeight();
             if (logicalW <= 0 || logicalH <= 0) return;
 
             double scaleX = ActualWidth / logicalW;
@@ -330,6 +429,7 @@ namespace IrisPxS.Controls
             double renderedH = logicalH * _scale;
             _panOffset = new Point((ActualWidth - renderedW) / 2, (ActualHeight - renderedH) / 2);
 
+            ClampPanOffset();
             InvalidateVisual();
             UpdateScrollBars();
             ZoomChanged?.Invoke(this, _scale);
@@ -342,6 +442,25 @@ namespace IrisPxS.Controls
             else UpdateScrollBars();
         }
 
+        public System.Windows.Rect GetFrameScreenRect(FilmFrame frame)
+        {
+            double baseX = _panOffset.X;
+            double baseY = _panOffset.Y;
+
+            if (_isMultiStripMode && _multiStripItems.Count > 0)
+            {
+                var parentItem = _multiStripItems.FirstOrDefault(it => it.Strip.Frames.Contains(frame));
+                if (parentItem != null)
+                {
+                    baseX = _panOffset.X + parentItem.LayoutX * _scale;
+                    baseY = _panOffset.Y + parentItem.LayoutY * _scale;
+                }
+            }
+
+            var r = frame.CropRect;
+            return new System.Windows.Rect(baseX + r.X * _scale, baseY + r.Y * _scale, r.Width * _scale, r.Height * _scale);
+        }
+
         protected override void OnRender(DrawingContext dc)
         {
             base.OnRender(dc);
@@ -349,10 +468,16 @@ namespace IrisPxS.Controls
             // 背景描画
             dc.DrawRectangle(Background, null, new System.Windows.Rect(0, 0, ActualWidth, ActualHeight));
 
+            if (_isMultiStripMode && _multiStripItems.Count > 0)
+            {
+                RenderMultiStrips(dc);
+                return;
+            }
+
             if (ImageSource == null)
             {
                 var text = new FormattedText(
-                    "スキャン画像またはプレビューがありません\n[PreScan] または [画像を開く] をクリックしてください",
+                    "スキャン画像またはプレビューがありません\n[Pre-Scan] または [画像を開く] をクリックしてください",
                     System.Globalization.CultureInfo.CurrentCulture,
                     FlowDirection.LeftToRight,
                     new Typeface("Segoe UI"),
@@ -364,7 +489,7 @@ namespace IrisPxS.Controls
                 return;
             }
 
-            // 画像の描画 (論理サイズに合わせた拡大縮小・パン適用)
+            // 単一ストリップ画像の描画
             int logicalW = LogicalImageWidth > 0 ? LogicalImageWidth : ImageSource.PixelWidth;
             int logicalH = LogicalImageHeight > 0 ? LogicalImageHeight : ImageSource.PixelHeight;
             var imgRect = new System.Windows.Rect(_panOffset.X, _panOffset.Y, logicalW * _scale, logicalH * _scale);
@@ -373,28 +498,136 @@ namespace IrisPxS.Controls
             // コマ枠オーバーレイの描画
             if (Frames != null)
             {
-                int idx = 1;
                 foreach (var frame in Frames)
                 {
                     bool isSelected = (frame == SelectedFrame);
-                    DrawFrameOverlay(dc, frame, isSelected);
-                    idx++;
+                    DrawFrameOverlay(dc, frame, isSelected, _panOffset.X, _panOffset.Y, frame.Status);
                 }
             }
         }
 
-        private void DrawFrameOverlay(DrawingContext dc, FilmFrame frame, bool isSelected)
+        private void RenderMultiStrips(DrawingContext dc)
+        {
+            foreach (var item in _multiStripItems)
+            {
+                double stripX = _panOffset.X + item.LayoutX * _scale;
+                double stripY = _panOffset.Y + item.LayoutY * _scale;
+                double stripW = item.LogicalWidth * _scale;
+                double stripH = item.LogicalHeight * _scale;
+
+                var stripRect = new System.Windows.Rect(stripX, stripY, stripW, stripH);
+
+                // 1. 各ストリップの背景 (ステータスに応じた色: プレスキャン=薄い緑, 本スキャン=薄い青, 未スキャン=ダーク)
+                Color bgTint = item.Strip.Status switch
+                {
+                    StripStatus.PreScanned => Color.FromArgb(28, 40, 167, 69), // 透過緑
+                    StripStatus.Scanned => Color.FromArgb(28, 0, 120, 215),    // 透過青
+                    _ => Color.FromArgb(15, 255, 255, 255)
+                };
+                dc.DrawRectangle(new SolidColorBrush(bgTint), null, stripRect);
+
+                // 2. ストリップ上部ヘッダー (Cut名, ステータス, DPI, コマ数)
+                double headY = stripY - (StripHeaderHeight - 4) * _scale;
+                double headH = (StripHeaderHeight - 6) * _scale;
+                if (headH > 8)
+                {
+                    var headRect = new System.Windows.Rect(stripX, headY, stripW, headH);
+                    Color headColor = item.Strip.Status switch
+                    {
+                        StripStatus.PreScanned => Color.FromRgb(46, 125, 50),  // 深緑
+                        StripStatus.Scanned => Color.FromRgb(21, 101, 192),   // 深青
+                        _ => Color.FromRgb(97, 97, 97)
+                    };
+                    dc.DrawRoundedRectangle(new SolidColorBrush(headColor), null, headRect, 4, 4);
+
+                    // アクティブなストリップならゴールド枠で強調
+                    if (item.IsActive)
+                    {
+                        var activePen = new Pen(new SolidColorBrush(Color.FromRgb(255, 215, 0)), 2.0);
+                        dc.DrawRoundedRectangle(null, activePen, headRect, 4, 4);
+                    }
+
+                    // ヘッダーテキスト
+                    if (headH >= 10)
+                    {
+                        string headerStr = $"{item.Strip.Name}  [{item.Strip.StatusText}]  {item.Strip.ScanDpi}dpi  ({item.Strip.Frames.Count}コマ)";
+                        var headText = new FormattedText(
+                            headerStr,
+                            System.Globalization.CultureInfo.CurrentCulture,
+                            FlowDirection.LeftToRight,
+                            new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal),
+                            Math.Clamp(12 * _scale, 9, 13),
+                            Brushes.White,
+                            VisualTreeHelper.GetDpi(this).PixelsPerDip);
+
+                        dc.DrawText(headText, new Point(stripX + 8, headY + (headH - headText.Height) / 2));
+                    }
+                }
+
+                // 3. 画像の描画 (または未スキャン表示)
+                if (item.ImageSource != null)
+                {
+                    dc.DrawImage(item.ImageSource, stripRect);
+                }
+                else
+                {
+                    var placeholderPen = new Pen(new SolidColorBrush(Color.FromRgb(80, 80, 90)), 1.5)
+                    {
+                        DashStyle = DashStyles.Dash
+                    };
+                    dc.DrawRectangle(null, placeholderPen, stripRect);
+
+                    var emptyText = new FormattedText(
+                        $"{item.Strip.Name}\n[Pre-Scan] を実行してスキャンを開始してください",
+                        System.Globalization.CultureInfo.CurrentCulture,
+                        FlowDirection.LeftToRight,
+                        new Typeface("Segoe UI"),
+                        Math.Clamp(13 * _scale, 10, 15),
+                        new SolidColorBrush(Color.FromRgb(140, 140, 150)),
+                        VisualTreeHelper.GetDpi(this).PixelsPerDip);
+                    dc.DrawText(emptyText, new Point(stripX + (stripW - emptyText.Width) / 2, stripY + (stripH - emptyText.Height) / 2));
+                }
+
+                // 4. ストリップ外枠 (アクティブならゴールド枠)
+                var borderPen = item.IsActive
+                    ? new Pen(new SolidColorBrush(Color.FromRgb(255, 215, 0)), 2.0)
+                    : new Pen(new SolidColorBrush(Color.FromArgb(90, 200, 200, 200)), 1.0);
+                dc.DrawRectangle(null, borderPen, stripRect);
+
+                // 5. 各ストリップのコマ枠を描画
+                foreach (var frame in item.Strip.Frames)
+                {
+                    bool isSelected = (frame == SelectedFrame);
+                    DrawFrameOverlay(dc, frame, isSelected, stripX, stripY, item.Strip.Status);
+                }
+            }
+        }
+
+        private void DrawFrameOverlay(DrawingContext dc, FilmFrame frame, bool isSelected, double baseX, double baseY, StripStatus status = StripStatus.NotScanned)
         {
             var r = frame.CropRect;
-            double screenX = _panOffset.X + r.X * _scale;
-            double screenY = _panOffset.Y + r.Y * _scale;
+            double screenX = baseX + r.X * _scale;
+            double screenY = baseY + r.Y * _scale;
             double screenW = r.Width * _scale;
             double screenH = r.Height * _scale;
 
             var screenRect = new System.Windows.Rect(screenX, screenY, screenW, screenH);
 
-            var strokeColor = isSelected ? Color.FromRgb(0, 200, 255) : Color.FromRgb(255, 180, 0);
-            var fillBrush = new SolidColorBrush(Color.FromArgb(isSelected ? (byte)40 : (byte)15, strokeColor.R, strokeColor.G, strokeColor.B));
+            // 枠線・塗りつぶし色:
+            // 選択中 = シアン (#00C8FF)
+            // PreScanned = エメラルドグリーン (#28A745)
+            // Scanned = ロイヤルブルー (#0078D7)
+            // その他 = オレンジ (#FFB400)
+            Color strokeColor = isSelected
+                ? Color.FromRgb(0, 200, 255)
+                : status switch
+                {
+                    StripStatus.PreScanned => Color.FromRgb(40, 167, 69),
+                    StripStatus.Scanned => Color.FromRgb(0, 120, 215),
+                    _ => Color.FromRgb(255, 180, 0)
+                };
+
+            var fillBrush = new SolidColorBrush(Color.FromArgb(isSelected ? (byte)45 : (byte)20, strokeColor.R, strokeColor.G, strokeColor.B));
             var pen = new Pen(new SolidColorBrush(strokeColor), isSelected ? 2.5 : 1.5);
 
             dc.DrawRectangle(fillBrush, pen, screenRect);
@@ -403,8 +636,8 @@ namespace IrisPxS.Controls
             if (frame.CropInsetPercent > 0.05)
             {
                 var inR = frame.GetInsetCropRect();
-                double inX = _panOffset.X + inR.X * _scale;
-                double inY = _panOffset.Y + inR.Y * _scale;
+                double inX = baseX + inR.X * _scale;
+                double inY = baseY + inR.Y * _scale;
                 double inW = inR.Width * _scale;
                 double inH = inR.Height * _scale;
 
@@ -426,7 +659,7 @@ namespace IrisPxS.Controls
                 FlowDirection.LeftToRight,
                 new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal),
                 11,
-                Brushes.Black,
+                Brushes.White,
                 VisualTreeHelper.GetDpi(this).PixelsPerDip);
 
             dc.DrawText(text, new Point(badgeRect.X + (badgeRect.Width - text.Width) / 2, badgeRect.Y + (badgeRect.Height - text.Height) / 2));
@@ -484,9 +717,9 @@ namespace IrisPxS.Controls
                 return;
             }
 
-            if (e.ChangedButton == MouseButton.Left && Frames != null)
+            if (e.ChangedButton == MouseButton.Left)
             {
-                // まず選択枠のハンドル上かチェック (マウスドラッグ有効時のみ)
+                // 1. まず選択枠のハンドル上かチェック (マウスドラッグ有効時のみ)
                 if (IsDragEnabled && SelectedFrame != null)
                 {
                     int handle = HitTestHandles(pos, SelectedFrame);
@@ -500,20 +733,43 @@ namespace IrisPxS.Controls
                     }
                 }
 
-                // コマ枠クリック判定 (最前面またはクリック位置のコマ)
+                // 2. コマ枠クリック判定 (マルチストリップモードまたは単一モード)
                 FilmFrame? hitFrame = null;
-                for (int i = Frames.Count - 1; i >= 0; i--)
+                FilmStrip? hitStrip = null;
+
+                if (_isMultiStripMode && _multiStripItems.Count > 0)
                 {
-                    if (IsPointInsideFrame(pos, Frames[i]))
+                    foreach (var item in _multiStripItems)
                     {
-                        hitFrame = Frames[i];
-                        break;
+                        for (int i = item.Strip.Frames.Count - 1; i >= 0; i--)
+                        {
+                            var f = item.Strip.Frames[i];
+                            if (IsPointInsideFrame(pos, f))
+                            {
+                                hitFrame = f;
+                                hitStrip = item.Strip;
+                                break;
+                            }
+                        }
+                        if (hitFrame != null) break;
+                    }
+                }
+                else if (Frames != null)
+                {
+                    for (int i = Frames.Count - 1; i >= 0; i--)
+                    {
+                        if (IsPointInsideFrame(pos, Frames[i]))
+                        {
+                            hitFrame = Frames[i];
+                            break;
+                        }
                     }
                 }
 
                 if (hitFrame != null)
                 {
                     SelectedFrame = hitFrame;
+                    if (hitStrip != null) StripSelected?.Invoke(this, hitStrip);
                     FrameSelected?.Invoke(this, hitFrame);
                     if (IsDragEnabled)
                     {
@@ -530,12 +786,29 @@ namespace IrisPxS.Controls
                     InvalidateVisual();
                     return;
                 }
-                else
+
+                // 3. ストリップヘッダーまたはストリップ領域クリック判定 (ストリップ選択切り替え)
+                if (_isMultiStripMode && _multiStripItems.Count > 0)
                 {
-                    // 空白地クリック: パン開始
-                    _isPanning = true;
-                    _lastMousePos = pos;
+                    foreach (var item in _multiStripItems)
+                    {
+                        double sx = _panOffset.X + item.LayoutX * _scale;
+                        double sy = _panOffset.Y + (item.LayoutY - StripHeaderHeight) * _scale;
+                        double sw = item.LogicalWidth * _scale;
+                        double sh = (item.LogicalHeight + StripHeaderHeight) * _scale;
+
+                        if (pos.X >= sx && pos.X <= sx + sw && pos.Y >= sy && pos.Y <= sy + sh)
+                        {
+                            StripSelected?.Invoke(this, item.Strip);
+                            InvalidateVisual();
+                            return;
+                        }
+                    }
                 }
+
+                // 4. 空白地クリック: パン開始
+                _isPanning = true;
+                _lastMousePos = pos;
             }
         }
 
@@ -588,7 +861,8 @@ namespace IrisPxS.Controls
                 int h = HitTestHandles(pos, SelectedFrame);
                 Cursor = GetCursorForHandle(h);
             }
-            else if (Frames != null && Frames.Any(f => IsPointInsideFrame(pos, f)))
+            else if ((_isMultiStripMode && _multiStripItems.Any(item => item.Strip.Frames.Any(f => IsPointInsideFrame(pos, f)))) ||
+                     (Frames != null && Frames.Any(f => IsPointInsideFrame(pos, f))))
             {
                 Cursor = Cursors.Hand;
             }
@@ -616,13 +890,12 @@ namespace IrisPxS.Controls
             bool isCtrl = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
             bool isShift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
 
-            int logicalW = LogicalImageWidth > 0 ? LogicalImageWidth : (ImageSource?.PixelWidth ?? 0);
-            int logicalH = LogicalImageHeight > 0 ? LogicalImageHeight : (ImageSource?.PixelHeight ?? 0);
-            double contentW = logicalW * _scale;
-            double contentH = logicalH * _scale;
+            double contentW = GetContentLogicalWidth() * _scale;
+            double contentH = GetContentLogicalHeight() * _scale;
+            bool hasContent = (_isMultiStripMode && _multiStripItems.Count > 0) || ImageSource != null;
 
-            bool canScrollV = ImageSource != null && (contentH + CanvasPadding * 2 > ActualHeight);
-            bool canScrollH = ImageSource != null && (contentW + CanvasPadding * 2 > ActualWidth);
+            bool canScrollV = hasContent && (contentH + CanvasPadding * 2 > ActualHeight);
+            bool canScrollH = hasContent && (contentW + CanvasPadding * 2 > ActualWidth);
 
             if (isCtrl || (!canScrollV && !isShift))
             {
@@ -661,35 +934,24 @@ namespace IrisPxS.Controls
 
         private bool IsPointInsideFrame(Point screenPos, FilmFrame frame)
         {
-            var r = frame.CropRect;
-            double sx = _panOffset.X + r.X * _scale;
-            double sy = _panOffset.Y + r.Y * _scale;
-            double sw = r.Width * _scale;
-            double sh = r.Height * _scale;
-
-            return screenPos.X >= sx && screenPos.X <= sx + sw &&
-                   screenPos.Y >= sy && screenPos.Y <= sy + sh;
+            var rect = GetFrameScreenRect(frame);
+            return rect.Contains(screenPos);
         }
 
         private int HitTestHandles(Point screenPos, FilmFrame frame)
         {
-            var r = frame.CropRect;
-            double sx = _panOffset.X + r.X * _scale;
-            double sy = _panOffset.Y + r.Y * _scale;
-            double sw = r.Width * _scale;
-            double sh = r.Height * _scale;
-
+            var rect = GetFrameScreenRect(frame);
             double tol = 7.0;
             Point[] pts =
             {
-                new Point(sx, sy),
-                new Point(sx + sw / 2, sy),
-                new Point(sx + sw, sy),
-                new Point(sx + sw, sy + sh / 2),
-                new Point(sx + sw, sy + sh),
-                new Point(sx + sw / 2, sy + sh),
-                new Point(sx, sy + sh),
-                new Point(sx, sy + sh / 2)
+                new Point(rect.Left, rect.Top),
+                new Point(rect.Left + rect.Width / 2, rect.Top),
+                new Point(rect.Right, rect.Top),
+                new Point(rect.Right, rect.Top + rect.Height / 2),
+                new Point(rect.Right, rect.Bottom),
+                new Point(rect.Left + rect.Width / 2, rect.Bottom),
+                new Point(rect.Left, rect.Bottom),
+                new Point(rect.Left, rect.Top + rect.Height / 2)
             };
 
             for (int i = 0; i < pts.Length; i++)

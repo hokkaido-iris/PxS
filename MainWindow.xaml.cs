@@ -39,6 +39,7 @@ namespace IrisPxS
         private Mat? _currentIrMat = null;
         private string? _currentLoadedScanPath = null;
         private bool _isUpdatingUi = false;
+        private readonly Dictionary<string, BitmapSource> _stripPreviewCache = new();
 
         public MainWindow()
         {
@@ -53,6 +54,13 @@ namespace IrisPxS
             InitializeSession();
 
             ScanCanvas.FrameSelected += (s, frame) => SelectFrame(frame);
+            ScanCanvas.StripSelected += (s, strip) =>
+            {
+                if (_currentStrip != strip)
+                {
+                    LstCuts.SelectedItem = strip;
+                }
+            };
             ScanCanvas.FrameModified += (s, e) =>
             {
                 if (_selectedFrame != null)
@@ -216,6 +224,7 @@ namespace IrisPxS
 
             UpdateCutSummary();
             UpdateFrameSummary();
+            UpdateMultiStripCanvas();
         }
 
         private async Task RefreshScannersAsync()
@@ -328,7 +337,7 @@ namespace IrisPxS
         // 【上側】Machine Control イベントハンドラ & スキャン計測・カウントダウン
         // ======================================================================
 
-        private void StartScanTimer(int dpi, int bitDepth)
+        private void StartScanTimer(int dpi, int bitDepth, bool isPreScan = false)
         {
             _currentScanningDpi = dpi;
             _currentScanningBitDepth = bitDepth;
@@ -344,8 +353,9 @@ namespace IrisPxS
                 _countdownTimer.Tick += CountdownTimer_Tick;
             }
 
+            TxtCountdown.Foreground = new SolidColorBrush(isPreScan ? Color.FromRgb(40, 167, 69) : Color.FromRgb(0, 120, 215));
             TxtCountdown.Visibility = Visibility.Visible;
-            TxtCountdown.Text = $"残り 約 {(int)Math.Ceiling(_estimatedTotalSeconds)} 秒";
+            TxtCountdown.Text = $"{(isPreScan ? "[Pre-Scan] " : "[本Scan] ")}残り 約 {(int)Math.Ceiling(_estimatedTotalSeconds)} 秒";
             PrgScan.IsIndeterminate = false;
             PrgScan.Value = 0;
             _countdownTimer.Start();
@@ -441,7 +451,7 @@ namespace IrisPxS
         {
             int bitDepth = isPreScan ? 8 : GetSelectedBitDepth();
             SetScanningUiState(true);
-            StartScanTimer(dpi, bitDepth);
+            StartScanTimer(dpi, bitDepth, isPreScan);
             var progress = new Progress<string>(msg => TxtStatus.Text = msg);
             bool success = false;
 
@@ -542,6 +552,65 @@ namespace IrisPxS
             }
         }
 
+        private BitmapSource? GetStripPreviewImage(FilmStrip strip)
+        {
+            if (strip == _currentStrip && ScanCanvas.ImageSource != null)
+            {
+                return ScanCanvas.ImageSource;
+            }
+
+            if (_stripPreviewCache.TryGetValue(strip.Id, out var cached))
+            {
+                return cached;
+            }
+
+            if (!string.IsNullOrEmpty(strip.FullScanImagePath) && System.IO.File.Exists(strip.FullScanImagePath))
+            {
+                try
+                {
+                    using var mat = Cv2.ImRead(strip.FullScanImagePath, ImreadModes.Color);
+                    if (!mat.Empty())
+                    {
+                        int maxDim = Math.Max(mat.Width, mat.Height);
+                        if (maxDim > 2000)
+                        {
+                            double sc = 2000.0 / maxDim;
+                            int nw = (int)Math.Round(mat.Width * sc);
+                            int nh = (int)Math.Round(mat.Height * sc);
+                            using var previewMat = new Mat();
+                            Cv2.Resize(mat, previewMat, new OpenCvSharp.Size(nw, nh), 0, 0, InterpolationFlags.Area);
+                            var bmp = previewMat.ToBitmapSource();
+                            _stripPreviewCache[strip.Id] = bmp;
+                            return bmp;
+                        }
+                        else
+                        {
+                            var bmp = mat.ToBitmapSource();
+                            _stripPreviewCache[strip.Id] = bmp;
+                            return bmp;
+                        }
+                    }
+                }
+                catch
+                {
+                    // 読み込み失敗時はnull
+                }
+            }
+
+            return null;
+        }
+
+        private void UpdateMultiStripCanvas()
+        {
+            if (_currentRoll == null || _currentRoll.Strips.Count == 0)
+            {
+                ScanCanvas.SetMultiStrips(null, null, _ => null);
+                return;
+            }
+
+            ScanCanvas.SetMultiStrips(_currentRoll.Strips, _currentStrip, GetStripPreviewImage);
+        }
+
         private void ApplyScanDataToCut(FilmStrip strip, Mat colorMat, Mat? irMat, int dpi, bool isPreScan)
         {
             _isUpdatingUi = true;
@@ -605,6 +674,7 @@ namespace IrisPxS
                     PerformAutoDetectFramesOnStrip(strip, _currentScanMat, _currentIrMat);
                     strip.PreScanWidth = _currentScanMat.Width;
                     strip.PreScanHeight = _currentScanMat.Height;
+                    foreach (var f in strip.Frames) f.Status = StripStatus.PreScanned;
                     TxtStatus.Text = $"{strip.Name}: Pre-Scan完了 ({strip.Frames.Count}コマ検出)。コマ枠を確認・微調整して [Scan] を実行してください。";
                 }
                 else
@@ -640,6 +710,7 @@ namespace IrisPxS
                             f.CropRect = new OpenCvSharp.Rect(sx, sy, sw, sh);
                             f.RawImagePath = strip.FullScanImagePath;
                             f.IrImagePath = strip.FullScanIrPath;
+                            f.Status = StripStatus.Scanned;
                             UpdateFrameThumbnail(f);
                         }
                         strip.FrameCoordinatesDpi = dpi;
@@ -648,14 +719,17 @@ namespace IrisPxS
                     {
                         // コマ枠が未登録の場合のみ自動認識を実行
                         PerformAutoDetectFramesOnStrip(strip, _currentScanMat, _currentIrMat);
+                        foreach (var f in strip.Frames) f.Status = StripStatus.Scanned;
                     }
 
                     strip.Status = StripStatus.Scanned;
                     TxtStatus.Text = $"{strip.Name}: 本スキャン完了 ({strip.Frames.Count}コマ)。続いて [＋ 次のカット] をセットするか、[ロール一括書き出し] を実行してください。";
                 }
 
+                _stripPreviewCache.Remove(strip.Id);
                 SyncAllFramesFromStrips();
                 SelectCut(strip);
+                UpdateMultiStripCanvas();
 
                 // ガベージコレクションを強制実行して中間バッファ・DirectXメモリを即時回収
                 GC.Collect(2, GCCollectionMode.Forced, true);
@@ -1219,6 +1293,7 @@ namespace IrisPxS
             }
 
             UpdateFrameSummary();
+            UpdateMultiStripCanvas();
         }
 
         private void SyncAllFramesFromStrips()
@@ -1263,6 +1338,7 @@ namespace IrisPxS
             UpdateCutSummary();
             LstCuts.SelectedItem = newStrip;
             SelectCut(newStrip);
+            UpdateMultiStripCanvas();
             TxtStatus.Text = $"{newStrip.Name} を追加しました。フィルムをセットして [Pre-Scan] を実行してください。";
         }
 
@@ -1289,6 +1365,7 @@ namespace IrisPxS
             var fallback = _currentRoll.Strips.Last();
             LstCuts.SelectedItem = fallback;
             SelectCut(fallback);
+            UpdateMultiStripCanvas();
         }
 
         private void BtnAutoDetectFrames_Click(object sender, RoutedEventArgs e)
@@ -1349,8 +1426,8 @@ namespace IrisPxS
                 straightenedMat.Dispose();
             }
 
-            strip.PreScanWidth = _currentScanMat.Width;
-            strip.PreScanHeight = _currentScanMat.Height;
+            strip.PreScanWidth = _currentScanMat?.Width ?? scanMat.Width;
+            strip.PreScanHeight = _currentScanMat?.Height ?? scanMat.Height;
 
             strip.Frames.Clear();
 

@@ -66,6 +66,44 @@ namespace IrisPxS.Models
             set { _isSelected = value; OnPropertyChanged(); }
         }
 
+        private StripStatus _status = StripStatus.NotScanned;
+        public StripStatus Status
+        {
+            get => _status;
+            set
+            {
+                _status = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(StatusColor));
+                OnPropertyChanged(nameof(StatusBackgroundColor));
+                OnPropertyChanged(nameof(StatusBorderColor));
+            }
+        }
+
+        public string StatusColor => Status switch
+        {
+            StripStatus.NotScanned => "#888888",
+            StripStatus.PreScanned => "#28A745", // プレスキャン: 緑
+            StripStatus.Scanned => "#0078D7",    // 本スキャン: 青
+            _ => "#888888"
+        };
+
+        public string StatusBackgroundColor => Status switch
+        {
+            StripStatus.NotScanned => "#FFFFFF",
+            StripStatus.PreScanned => "#E8F5E9", // プレスキャン背景: 優しい緑
+            StripStatus.Scanned => "#E3F2FD",    // 本スキャン背景: 優しい青
+            _ => "#FFFFFF"
+        };
+
+        public string StatusBorderColor => Status switch
+        {
+            StripStatus.NotScanned => "#CCCCCC",
+            StripStatus.PreScanned => "#81C784", // プレスキャン枠: 明瞭な緑
+            StripStatus.Scanned => "#64B5F6",    // 本スキャン枠: 明瞭な青
+            _ => "#CCCCCC"
+        };
+
         // --- フィルムベース色 (未露光オレンジマスク色) ---
         private byte _baseColorR = 215;
         public byte BaseColorR

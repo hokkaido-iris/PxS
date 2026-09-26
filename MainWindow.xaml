@@ -153,10 +153,10 @@
                     <ColumnDefinition Width="Auto" /> <!-- 右詰め: 接続機器, 状況LED, Scanner Setting -->
                 </Grid.ColumnDefinitions>
 
-                <!-- 左詰め: Pre-Scan / Scan -->
+                <!-- 左詰め: Pre-Scan (緑) / Scan (青) -->
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button x:Name="BtnPreScan" Content="Pre-Scan" Width="105" Height="32" FontWeight="SemiBold" Click="BtnPreScan_Click" ToolTip="透過光ユニット(TPU)で予備スキャンを実行" />
-                    <Button x:Name="BtnScan" Content="Scan" Width="110" Height="32" FontWeight="Bold" Margin="6,0,0,0" Background="#D5E8FF" BorderBrush="#0078D7" Click="BtnScanCurrent_Click" ToolTip="選択コマまたは指定解像度で本スキャンを実行" />
+                    <Button x:Name="BtnPreScan" Content="Pre-Scan" Width="105" Height="32" FontWeight="Bold" Background="#D4EDDA" BorderBrush="#28A745" Foreground="#155724" Click="BtnPreScan_Click" ToolTip="透過光ユニット(TPU)で予備スキャンを実行 (緑)" />
+                    <Button x:Name="BtnScan" Content="Scan" Width="110" Height="32" FontWeight="Bold" Margin="6,0,0,0" Background="#D5E8FF" BorderBrush="#0078D7" Foreground="#004085" Click="BtnScanCurrent_Click" ToolTip="選択コマまたは指定解像度で本スキャンを実行 (青)" />
                 </StackPanel>
 
                 <!-- 中揃え: IRIS PxS -->
@@ -725,19 +725,21 @@
                             </ListBox.ItemContainerStyle>
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
-                                    <Grid Margin="1">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="Auto" />
-                                        </Grid.ColumnDefinitions>
-                                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                                            <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="11" Foreground="#111111" />
-                                            <TextBlock Text="{Binding FrameCountText}" FontSize="10" Foreground="#666666" />
-                                        </StackPanel>
-                                        <Border Grid.Column="1" Background="{Binding StatusColor}" CornerRadius="2" Padding="4,1" VerticalAlignment="Center" Margin="4,0,2,0">
-                                            <TextBlock Text="{Binding StatusText}" FontSize="9" FontWeight="Bold" Foreground="#FFFFFF" />
-                                        </Border>
-                                    </Grid>
+                                    <Border Background="{Binding StatusBackgroundColor}" BorderBrush="{Binding StatusBorderColor}" BorderThickness="1" CornerRadius="3" Padding="5,3" Margin="1,1">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="11" Foreground="#111111" />
+                                                <TextBlock Text="{Binding FrameCountText}" FontSize="10" Foreground="#555555" />
+                                            </StackPanel>
+                                            <Border Grid.Column="1" Background="{Binding StatusColor}" CornerRadius="2" Padding="5,2" VerticalAlignment="Center" Margin="4,0,2,0">
+                                                <TextBlock Text="{Binding StatusText}" FontSize="9" FontWeight="Bold" Foreground="#FFFFFF" />
+                                            </Border>
+                                        </Grid>
+                                    </Border>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
@@ -815,15 +817,17 @@
                         </ListBox.ItemsPanel>
                         <ListBox.ItemTemplate>
                             <DataTemplate>
-                                <Border Padding="4" Width="98">
+                                <Border Padding="4" Width="98" Background="{Binding StatusBackgroundColor}" BorderBrush="{Binding StatusBorderColor}" BorderThickness="1" CornerRadius="3" Margin="2">
                                     <StackPanel HorizontalAlignment="Center">
                                         <!-- コマ番号バッジ -->
-                                        <TextBlock Text="{Binding FrameNumber, StringFormat='Frame #{0}'}" FontWeight="Bold" FontSize="10" HorizontalAlignment="Center" Margin="0,0,0,2" />
+                                        <Border Background="{Binding StatusColor}" CornerRadius="2" Padding="4,1" Margin="0,0,0,3" HorizontalAlignment="Center">
+                                            <TextBlock Text="{Binding FrameNumber, StringFormat='Frame #{0}'}" FontWeight="Bold" FontSize="10" Foreground="#FFFFFF" HorizontalAlignment="Center" />
+                                        </Border>
                                         <!-- サムネイル画像 -->
-                                        <Border BorderBrush="#999999" BorderThickness="1" Background="#111111" Width="88" Height="60">
+                                        <Border BorderBrush="#888888" BorderThickness="1" Background="#111111" Width="88" Height="60">
                                             <Image Source="{Binding Thumbnail}" Stretch="Uniform" />
                                         </Border>
-                                        <TextBlock Text="{Binding CameraModel}" FontSize="9" Foreground="#666666" TextTrimming="CharacterEllipsis" HorizontalAlignment="Center" Margin="0,2,0,0" />
+                                        <TextBlock Text="{Binding CameraModel}" FontSize="9" Foreground="#555555" TextTrimming="CharacterEllipsis" HorizontalAlignment="Center" Margin="0,2,0,0" />
                                     </StackPanel>
                                 </Border>
                             </DataTemplate>

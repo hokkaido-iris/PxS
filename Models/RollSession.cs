@@ -39,6 +39,9 @@ namespace IrisPxS.Models
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(StatusText));
                 OnPropertyChanged(nameof(StatusColor));
+                OnPropertyChanged(nameof(StatusBackgroundColor));
+                OnPropertyChanged(nameof(StatusBorderColor));
+                OnPropertyChanged(nameof(StatusHeaderColor));
             }
         }
 
@@ -46,16 +49,40 @@ namespace IrisPxS.Models
         {
             StripStatus.NotScanned => "未スキャン",
             StripStatus.PreScanned => "PreScan済",
-            StripStatus.Scanned => "Scan済",
+            StripStatus.Scanned => "本Scan済",
             _ => "未スキャン"
         };
 
         public string StatusColor => Status switch
         {
             StripStatus.NotScanned => "#888888",
-            StripStatus.PreScanned => "#FD7E14", // オレンジ
-            StripStatus.Scanned => "#28A745",    // グリーン
+            StripStatus.PreScanned => "#28A745", // プレスキャン: 緑
+            StripStatus.Scanned => "#0078D7",    // 本スキャン: 青
             _ => "#888888"
+        };
+
+        public string StatusBackgroundColor => Status switch
+        {
+            StripStatus.NotScanned => "#FFFFFF",
+            StripStatus.PreScanned => "#E8F5E9", // プレスキャン背景: 優しい緑
+            StripStatus.Scanned => "#E3F2FD",    // 本スキャン背景: 優しい青
+            _ => "#FFFFFF"
+        };
+
+        public string StatusBorderColor => Status switch
+        {
+            StripStatus.NotScanned => "#CCCCCC",
+            StripStatus.PreScanned => "#81C784", // プレスキャン枠: 明瞭な緑
+            StripStatus.Scanned => "#64B5F6",    // 本スキャン枠: 明瞭な青
+            _ => "#CCCCCC"
+        };
+
+        public string StatusHeaderColor => Status switch
+        {
+            StripStatus.NotScanned => "#616161",
+            StripStatus.PreScanned => "#2E7D32", // プレスキャン見出し: 深緑
+            StripStatus.Scanned => "#1565C0",    // 本スキャン見出し: 深青
+            _ => "#616161"
         };
 
         public string FrameCountText => Frames.Count > 0 ? $"{Frames.Count} コマ" : "-";

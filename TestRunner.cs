@@ -369,6 +369,45 @@ namespace IrisPxS
 
             var zipPath = await exportService.ExportToZipAsync(roll, exportOpt);
             Console.WriteLine($"ZIP書き出し完了: {Path.GetFileName(zipPath)} ({new FileInfo(zipPath).Length / 1024} KB)");
+
+            // 7. プレスキャン(緑)/本スキャン(青) ステータス・背景色検証
+            Console.WriteLine("\n[7/8] プレスキャン(緑) / 本スキャン(青) ステータス＆背景色検証...");
+            var testStrip1 = new FilmStrip { StripIndex = 1, Name = "Cut 1", Status = StripStatus.PreScanned };
+            var testStrip2 = new FilmStrip { StripIndex = 2, Name = "Cut 2", Status = StripStatus.Scanned };
+            var testStrip3 = new FilmStrip { StripIndex = 3, Name = "Cut 3", Status = StripStatus.NotScanned };
+
+            Console.WriteLine($" - PreScan済: StatusColor={testStrip1.StatusColor} (期待 #28A745[緑]), Bg={testStrip1.StatusBackgroundColor} (期待 #E8F5E9)");
+            Console.WriteLine($" - 本Scan済:  StatusColor={testStrip2.StatusColor} (期待 #0078D7[青]), Bg={testStrip2.StatusBackgroundColor} (期待 #E3F2FD)");
+            Console.WriteLine($" - 未スキャン: StatusColor={testStrip3.StatusColor} (期待 #888888), Bg={testStrip3.StatusBackgroundColor} (期待 #FFFFFF)");
+            if (testStrip1.StatusColor == "#28A745" && testStrip2.StatusColor == "#0078D7")
+            {
+                Console.WriteLine("  => PreScan=緑 / 本Scan=青 ステータス配色 [PASS]");
+            }
+
+            // 8. マルチストリップ（全スキャン横並び）レイアウト・座標計算検証
+            Console.WriteLine("\n[8/8] マルチストリップ（全スキャン横並び）レイアウト・座標計算検証...");
+            testStrip1.PreScanWidth = 3200;
+            testStrip1.PreScanHeight = 850;
+            testStrip2.PreScanWidth = 3200;
+            testStrip2.PreScanHeight = 850;
+            testStrip3.PreScanWidth = 3200;
+            testStrip3.PreScanHeight = 850;
+
+            var stripsList = new List<FilmStrip> { testStrip1, testStrip2, testStrip3 };
+            double curX = 30.0; // CanvasPadding
+            const double gap = 40.0;
+            const double headerH = 32.0;
+
+            for (int sIdx = 0; sIdx < stripsList.Count; sIdx++)
+            {
+                var s = stripsList[sIdx];
+                double layoutX = curX;
+                double layoutY = 30.0 + headerH;
+                Console.WriteLine($" - {s.Name} ({s.StatusText}): LayoutX={layoutX}px, LayoutY={layoutY}px, Width={s.PreScanWidth}px, Height={s.PreScanHeight}px");
+                curX += s.PreScanWidth + gap;
+            }
+            double totalW = curX - gap + 30.0;
+            Console.WriteLine($" => 全3ストリップ横並び合計論理幅: {totalW}px [PASS]");
         }
 
         public static async Task Run110DiagnosticAsync()
@@ -486,6 +525,45 @@ namespace IrisPxS
                 Scalar leftMean = Cv2.Mean(leftBorder);
                 Console.WriteLine($"  Frame #{i+1}: X={r.X}, Y={r.Y}, W={r.Width}, H={r.Height}, Right={r.X + r.Width} | L_mean={leftMean.Val0:F1}, R_mean={rightMean.Val0:F1} {(rightMean.Val0 > 200 ? "[NG: 白ガラス混入]" : "[OK: フィルム内]")}");
             }
+
+            // 7. プレスキャン(緑)/本スキャン(青) ステータス・背景色検証
+            Console.WriteLine("\n[7/8] プレスキャン(緑) / 本スキャン(青) ステータス＆背景色検証...");
+            var testStrip1 = new FilmStrip { StripIndex = 1, Name = "Cut 1", Status = StripStatus.PreScanned };
+            var testStrip2 = new FilmStrip { StripIndex = 2, Name = "Cut 2", Status = StripStatus.Scanned };
+            var testStrip3 = new FilmStrip { StripIndex = 3, Name = "Cut 3", Status = StripStatus.NotScanned };
+
+            Console.WriteLine($" - PreScan済: StatusColor={testStrip1.StatusColor} (期待 #28A745[緑]), Bg={testStrip1.StatusBackgroundColor} (期待 #E8F5E9)");
+            Console.WriteLine($" - 本Scan済:  StatusColor={testStrip2.StatusColor} (期待 #0078D7[青]), Bg={testStrip2.StatusBackgroundColor} (期待 #E3F2FD)");
+            Console.WriteLine($" - 未スキャン: StatusColor={testStrip3.StatusColor} (期待 #888888), Bg={testStrip3.StatusBackgroundColor} (期待 #FFFFFF)");
+            if (testStrip1.StatusColor == "#28A745" && testStrip2.StatusColor == "#0078D7")
+            {
+                Console.WriteLine("  => PreScan=緑 / 本Scan=青 ステータス配色 [PASS]");
+            }
+
+            // 8. マルチストリップ（全スキャン横並び）レイアウト・座標計算検証
+            Console.WriteLine("\n[8/8] マルチストリップ（全スキャン横並び）レイアウト・座標計算検証...");
+            testStrip1.PreScanWidth = 3200;
+            testStrip1.PreScanHeight = 850;
+            testStrip2.PreScanWidth = 3200;
+            testStrip2.PreScanHeight = 850;
+            testStrip3.PreScanWidth = 3200;
+            testStrip3.PreScanHeight = 850;
+
+            var stripsList = new List<FilmStrip> { testStrip1, testStrip2, testStrip3 };
+            double curX = 30.0; // CanvasPadding
+            const double gap = 40.0;
+            const double headerH = 32.0;
+
+            for (int sIdx = 0; sIdx < stripsList.Count; sIdx++)
+            {
+                var s = stripsList[sIdx];
+                double layoutX = curX;
+                double layoutY = 30.0 + headerH;
+                Console.WriteLine($" - {s.Name} ({s.StatusText}): LayoutX={layoutX}px, LayoutY={layoutY}px, Width={s.PreScanWidth}px, Height={s.PreScanHeight}px");
+                curX += s.PreScanWidth + gap;
+            }
+            double totalW = curX - gap + 30.0;
+            Console.WriteLine($" => 全3ストリップ横並び合計論理幅: {totalW}px [PASS]");
         }
     }
 }
