@@ -105,6 +105,13 @@ namespace IrisPxS.Controls
         private Point _lastMousePos;
         private bool _isPanning = false;
 
+        // スクロールバー連携
+        private System.Windows.Controls.Primitives.ScrollBar? _hScrollBar;
+        private System.Windows.Controls.Primitives.ScrollBar? _vScrollBar;
+        private Border? _cornerBorder;
+        private bool _isUpdatingScroll = false;
+        private const double CanvasPadding = 30.0;
+
         // ドラッグ移動・リサイズ管理
         private FilmFrame? _draggedFrame = null;
         private int _resizeHandle = -1; // -1: なし, 0: 移動, 1~8: 各ハンドル (TL, T, TR, R, BR, B, BL, L)
@@ -116,6 +123,187 @@ namespace IrisPxS.Controls
             ClipToBounds = true;
             Focusable = true;
             Background = new SolidColorBrush(Color.FromRgb(20, 20, 24));
+        }
+
+        public void AttachScrollBars(
+            System.Windows.Controls.Primitives.ScrollBar? hScroll,
+            System.Windows.Controls.Primitives.ScrollBar? vScroll,
+            Border? corner = null)
+        {
+            if (_hScrollBar != null)
+            {
+                _hScrollBar.Scroll -= OnScrollBarScroll;
+            }
+            if (_vScrollBar != null)
+            {
+                _vScrollBar.Scroll -= OnScrollBarScroll;
+            }
+
+            _hScrollBar = hScroll;
+            _vScrollBar = vScroll;
+            _cornerBorder = corner;
+
+            if (_hScrollBar != null)
+            {
+                _hScrollBar.Scroll += OnScrollBarScroll;
+            }
+            if (_vScrollBar != null)
+            {
+                _vScrollBar.Scroll += OnScrollBarScroll;
+            }
+
+            UpdateScrollBars();
+        }
+
+        private void OnScrollBarScroll(object sender, System.Windows.Controls.Primitives.ScrollEventArgs e)
+        {
+            if (_isUpdatingScroll || ImageSource == null) return;
+
+            int logicalW = LogicalImageWidth > 0 ? LogicalImageWidth : ImageSource.PixelWidth;
+            int logicalH = LogicalImageHeight > 0 ? LogicalImageHeight : ImageSource.PixelHeight;
+            double contentW = logicalW * _scale;
+            double contentH = logicalH * _scale;
+
+            if (sender == _vScrollBar && _vScrollBar != null)
+            {
+                double totalH = contentH + CanvasPadding * 2;
+                if (totalH > ActualHeight)
+                {
+                    double maxPanY = CanvasPadding;
+                    _panOffset.Y = maxPanY - e.NewValue;
+                }
+            }
+            else if (sender == _hScrollBar && _hScrollBar != null)
+            {
+                double totalW = contentW + CanvasPadding * 2;
+                if (totalW > ActualWidth)
+                {
+                    double maxPanX = CanvasPadding;
+                    _panOffset.X = maxPanX - e.NewValue;
+                }
+            }
+
+            InvalidateVisual();
+        }
+
+        public void UpdateScrollBars()
+        {
+            if (_isUpdatingScroll || ActualWidth <= 0 || ActualHeight <= 0) return;
+            _isUpdatingScroll = true;
+
+            try
+            {
+                if (ImageSource == null)
+                {
+                    if (_hScrollBar != null) { _hScrollBar.IsEnabled = false; _hScrollBar.Visibility = Visibility.Collapsed; }
+                    if (_vScrollBar != null) { _vScrollBar.IsEnabled = false; _vScrollBar.Visibility = Visibility.Collapsed; }
+                    if (_cornerBorder != null) _cornerBorder.Visibility = Visibility.Collapsed;
+                    return;
+                }
+
+                int logicalW = LogicalImageWidth > 0 ? LogicalImageWidth : ImageSource.PixelWidth;
+                int logicalH = LogicalImageHeight > 0 ? LogicalImageHeight : ImageSource.PixelHeight;
+                double contentW = logicalW * _scale;
+                double contentH = logicalH * _scale;
+
+                bool vVisible = false;
+                bool hVisible = false;
+
+                // 垂直スクロールバー
+                if (_vScrollBar != null)
+                {
+                    double totalH = contentH + CanvasPadding * 2;
+                    if (totalH > ActualHeight)
+                    {
+                        vVisible = true;
+                        _vScrollBar.Visibility = Visibility.Visible;
+                        _vScrollBar.IsEnabled = true;
+                        _vScrollBar.Minimum = 0;
+                        _vScrollBar.Maximum = totalH - ActualHeight;
+                        _vScrollBar.ViewportSize = ActualHeight;
+                        _vScrollBar.SmallChange = Math.Max(20, ActualHeight * 0.05);
+                        _vScrollBar.LargeChange = Math.Max(100, ActualHeight * 0.4);
+
+                        double maxPanY = CanvasPadding;
+                        double val = maxPanY - _panOffset.Y;
+                        _vScrollBar.Value = Math.Clamp(val, _vScrollBar.Minimum, _vScrollBar.Maximum);
+                    }
+                    else
+                    {
+                        _vScrollBar.Visibility = Visibility.Collapsed;
+                        _vScrollBar.IsEnabled = false;
+                        _vScrollBar.Value = 0;
+                    }
+                }
+
+                // 水平スクロールバー
+                if (_hScrollBar != null)
+                {
+                    double totalW = contentW + CanvasPadding * 2;
+                    if (totalW > ActualWidth)
+                    {
+                        hVisible = true;
+                        _hScrollBar.Visibility = Visibility.Visible;
+                        _hScrollBar.IsEnabled = true;
+                        _hScrollBar.Minimum = 0;
+                        _hScrollBar.Maximum = totalW - ActualWidth;
+                        _hScrollBar.ViewportSize = ActualWidth;
+                        _hScrollBar.SmallChange = Math.Max(20, ActualWidth * 0.05);
+                        _hScrollBar.LargeChange = Math.Max(100, ActualWidth * 0.4);
+
+                        double maxPanX = CanvasPadding;
+                        double val = maxPanX - _panOffset.X;
+                        _hScrollBar.Value = Math.Clamp(val, _hScrollBar.Minimum, _hScrollBar.Maximum);
+                    }
+                    else
+                    {
+                        _hScrollBar.Visibility = Visibility.Collapsed;
+                        _hScrollBar.IsEnabled = false;
+                        _hScrollBar.Value = 0;
+                    }
+                }
+
+                if (_cornerBorder != null)
+                {
+                    _cornerBorder.Visibility = (vVisible && hVisible) ? Visibility.Visible : Visibility.Collapsed;
+                }
+            }
+            finally
+            {
+                _isUpdatingScroll = false;
+            }
+        }
+
+        private void ClampPanOffset()
+        {
+            if (ImageSource == null || ActualWidth <= 0 || ActualHeight <= 0) return;
+
+            int logicalW = LogicalImageWidth > 0 ? LogicalImageWidth : ImageSource.PixelWidth;
+            int logicalH = LogicalImageHeight > 0 ? LogicalImageHeight : ImageSource.PixelHeight;
+            double contentW = logicalW * _scale;
+            double contentH = logicalH * _scale;
+
+            if (contentW + CanvasPadding * 2 <= ActualWidth)
+            {
+                _panOffset.X = (ActualWidth - contentW) / 2;
+            }
+            else
+            {
+                double minX = ActualWidth - contentW - CanvasPadding;
+                double maxX = CanvasPadding;
+                _panOffset.X = Math.Clamp(_panOffset.X, minX, maxX);
+            }
+
+            if (contentH + CanvasPadding * 2 <= ActualHeight)
+            {
+                _panOffset.Y = (ActualHeight - contentH) / 2;
+            }
+            else
+            {
+                double minY = ActualHeight - contentH - CanvasPadding;
+                double maxY = CanvasPadding;
+                _panOffset.Y = Math.Clamp(_panOffset.Y, minY, maxY);
+            }
         }
 
         private static void OnImageSourceChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -143,6 +331,7 @@ namespace IrisPxS.Controls
             _panOffset = new Point((ActualWidth - renderedW) / 2, (ActualHeight - renderedH) / 2);
 
             InvalidateVisual();
+            UpdateScrollBars();
             ZoomChanged?.Invoke(this, _scale);
         }
 
@@ -150,6 +339,7 @@ namespace IrisPxS.Controls
         {
             base.OnRenderSizeChanged(sizeInfo);
             if (_scale == 1.0) ResetView();
+            else UpdateScrollBars();
         }
 
         protected override void OnRender(DrawingContext dc)
@@ -359,7 +549,9 @@ namespace IrisPxS.Controls
                 _panOffset.X += (pos.X - _lastMousePos.X);
                 _panOffset.Y += (pos.Y - _lastMousePos.Y);
                 _lastMousePos = pos;
+                ClampPanOffset();
                 InvalidateVisual();
+                UpdateScrollBars();
                 return;
             }
 
@@ -421,16 +613,50 @@ namespace IrisPxS.Controls
             base.OnMouseWheel(e);
             var pos = e.GetPosition(this);
 
-            double zoomFactor = e.Delta > 0 ? 1.15 : 1.0 / 1.15;
-            double newScale = Math.Clamp(_scale * zoomFactor, 0.05, 10.0);
+            bool isCtrl = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
+            bool isShift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
 
-            // マウスカーソル位置を中心にズーム
-            _panOffset.X = pos.X - (pos.X - _panOffset.X) * (newScale / _scale);
-            _panOffset.Y = pos.Y - (pos.Y - _panOffset.Y) * (newScale / _scale);
-            _scale = newScale;
+            int logicalW = LogicalImageWidth > 0 ? LogicalImageWidth : (ImageSource?.PixelWidth ?? 0);
+            int logicalH = LogicalImageHeight > 0 ? LogicalImageHeight : (ImageSource?.PixelHeight ?? 0);
+            double contentW = logicalW * _scale;
+            double contentH = logicalH * _scale;
 
-            InvalidateVisual();
-            ZoomChanged?.Invoke(this, _scale);
+            bool canScrollV = ImageSource != null && (contentH + CanvasPadding * 2 > ActualHeight);
+            bool canScrollH = ImageSource != null && (contentW + CanvasPadding * 2 > ActualWidth);
+
+            if (isCtrl || (!canScrollV && !isShift))
+            {
+                // Ctrlキー押下中、または垂直スクロール不要（全体表示時）はズーム
+                double zoomFactor = e.Delta > 0 ? 1.15 : 1.0 / 1.15;
+                double newScale = Math.Clamp(_scale * zoomFactor, 0.05, 10.0);
+
+                _panOffset.X = pos.X - (pos.X - _panOffset.X) * (newScale / _scale);
+                _panOffset.Y = pos.Y - (pos.Y - _panOffset.Y) * (newScale / _scale);
+                _scale = newScale;
+
+                ClampPanOffset();
+                InvalidateVisual();
+                UpdateScrollBars();
+                ZoomChanged?.Invoke(this, _scale);
+            }
+            else if (isShift)
+            {
+                // Shift + ホイール: 水平スクロール
+                double step = e.Delta * 0.8;
+                _panOffset.X += step;
+                ClampPanOffset();
+                InvalidateVisual();
+                UpdateScrollBars();
+            }
+            else
+            {
+                // 通常ホイール: 垂直スクロール
+                double step = e.Delta * 0.8;
+                _panOffset.Y += step;
+                ClampPanOffset();
+                InvalidateVisual();
+                UpdateScrollBars();
+            }
         }
 
         private bool IsPointInsideFrame(Point screenPos, FilmFrame frame)
@@ -700,7 +926,9 @@ namespace IrisPxS.Controls
             if (ImageSource == null || ActualWidth <= 0 || ActualHeight <= 0) return;
             _scale = 1.0;
             _panOffset = new Point((ActualWidth - ImageSource.PixelWidth) / 2, (ActualHeight - ImageSource.PixelHeight) / 2);
+            ClampPanOffset();
             InvalidateVisual();
+            UpdateScrollBars();
             ZoomChanged?.Invoke(this, _scale);
         }
 
@@ -711,7 +939,9 @@ namespace IrisPxS.Controls
             _panOffset.X = center.X - (center.X - _panOffset.X) * (newScale / _scale);
             _panOffset.Y = center.Y - (center.Y - _panOffset.Y) * (newScale / _scale);
             _scale = newScale;
+            ClampPanOffset();
             InvalidateVisual();
+            UpdateScrollBars();
             ZoomChanged?.Invoke(this, _scale);
         }
 

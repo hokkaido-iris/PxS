@@ -85,6 +85,8 @@ namespace IrisPxS
                 }
             };
 
+            ScanCanvas.AttachScrollBars(CanvasHScrollBar, CanvasVScrollBar, CanvasCornerBorder);
+
             Loaded += MainWindow_Loaded;
         }
 
