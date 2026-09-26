@@ -274,6 +274,7 @@ namespace IrisPxS.Services
                 FilmSizeCategory.Size110 => 16.0,
                 FilmSizeCategory.Size120 => 61.5,
                 FilmSizeCategory.Size127 => 46.0,
+                FilmSizeCategory.Size240 => 24.0,
                 _ => 35.0
             };
         }
@@ -297,6 +298,7 @@ namespace IrisPxS.Services
 
             switch (format.Type)
             {
+                // 135
                 case FilmFormatType.Format135_Full:
                     dimAcross = 24.0;
                     dimAlong = 36.0;
@@ -305,8 +307,15 @@ namespace IrisPxS.Services
                 case FilmFormatType.Format135_Half:
                     dimAcross = 24.0;
                     dimAlong = 18.0;
-                    marginMm = 1.5; // 19.5mm ピッチ
+                    marginMm = 1.5; // 19.5mm ピッチ (4パーフォレーション)
                     break;
+                case FilmFormatType.Format135_24x65:
+                    dimAcross = 24.0;
+                    dimAlong = 65.0;
+                    marginMm = 2.0; // 67.0mm ピッチ
+                    break;
+
+                // 120
                 case FilmFormatType.Format120_645:
                     dimAcross = 56.0;
                     dimAlong = 41.5;
@@ -322,32 +331,59 @@ namespace IrisPxS.Services
                     dimAlong = 70.0;
                     marginMm = 6.0; // 76.0mm ピッチ
                     break;
+                case FilmFormatType.Format120_68:
+                    dimAcross = 56.0;
+                    dimAlong = 76.0;
+                    marginMm = 6.0; // 82.0mm ピッチ
+                    break;
                 case FilmFormatType.Format120_69:
                     dimAcross = 56.0;
                     dimAlong = 84.0;
                     marginMm = 6.0; // 90.0mm ピッチ
                     break;
-                case FilmFormatType.Format127_465:
+
+                // 127
+                case FilmFormatType.Format127_43:
                     dimAcross = 40.0;
-                    dimAlong = 65.0;
-                    marginMm = 3.0;
+                    dimAlong = 30.0;
+                    marginMm = 3.0; // 33.0mm ピッチ
                     break;
                 case FilmFormatType.Format127_44:
                     dimAcross = 40.0;
                     dimAlong = 40.0;
-                    marginMm = 3.0;
+                    marginMm = 3.0; // 43.0mm ピッチ
                     break;
-                case FilmFormatType.Format127_43:
+                case FilmFormatType.Format127_465:
                     dimAcross = 40.0;
-                    dimAlong = 30.0;
-                    marginMm = 3.0;
+                    dimAlong = 65.0;
+                    marginMm = 3.0; // 68.0mm ピッチ
                     break;
+
+                // 240 (APS)
+                case FilmFormatType.Format240_HiVision:
+                    dimAcross = 16.7;
+                    dimAlong = 30.2;
+                    marginMm = 2.7; // 32.9mm ピッチ (ISO 14473: 9:16)
+                    break;
+                case FilmFormatType.Format240_Classic:
+                    dimAcross = 16.7;
+                    dimAlong = 25.1;
+                    marginMm = 7.8; // 32.9mm ピッチ (2:3)
+                    break;
+                case FilmFormatType.Format240_Panorama:
+                    dimAcross = 10.1;
+                    dimAlong = 30.2;
+                    marginMm = 2.7; // 32.9mm ピッチ (1:3)
+                    break;
+
+                // 110
                 case FilmFormatType.Format110_General:
-                    // 110ポケットフィルム国際規格 (ISO 844) 実効露光画面: 11.5x16.5mm, ピッチ 25.0mm (マージン 8.5mm)
-                    dimAcross = 11.5;
-                    dimAlong = 16.5;
-                    marginMm = 8.5; // 16.5 + 8.5 = 25.0mm
+                    // 110ポケットフィルム公称規格: 13x17mm (比率 13:17 = 1:1.3077), ピッチ 25.0mm (マージン 8.0mm)
+                    dimAcross = 13.0;
+                    dimAlong = 17.0;
+                    marginMm = 8.0; // 17.0 + 8.0 = 25.0mm
                     break;
+
                 default:
                     dimAcross = Math.Min(format.PhysicalWidthMm, format.PhysicalHeightMm);
                     dimAlong = Math.Max(format.PhysicalWidthMm, format.PhysicalHeightMm);
@@ -590,14 +626,30 @@ namespace IrisPxS.Services
                 if (perfOnLeft)
                 {
                     int perfRightEdge = chosenHoles.Max(h => h.X + h.Width);
-                    int rightMargin = (int)Math.Round(1.0 * mmToPx);
-                    bestX = Math.Max(perfRightEdge + (int)(0.5 * mmToPx), filmRight - rightMargin - targetW);
+                    int rightMargin = (int)Math.Round(0.8 * mmToPx);
+                    bestX = filmRight - rightMargin - targetW;
+                    if (bestX < perfRightEdge + (int)(0.3 * mmToPx))
+                    {
+                        bestX = perfRightEdge + (int)(0.3 * mmToPx);
+                    }
+                    if (bestX + targetW > filmRight)
+                    {
+                        bestX = filmRight - targetW;
+                    }
                 }
                 else
                 {
                     int perfLeftEdge = chosenHoles.Min(h => h.X);
-                    int leftMargin = (int)Math.Round(1.0 * mmToPx);
-                    bestX = Math.Min(perfLeftEdge - (int)(0.5 * mmToPx) - targetW, filmLeft + leftMargin);
+                    int leftMargin = (int)Math.Round(0.8 * mmToPx);
+                    bestX = filmLeft + leftMargin;
+                    if (bestX + targetW > perfLeftEdge - (int)(0.3 * mmToPx))
+                    {
+                        bestX = perfLeftEdge - (int)(0.3 * mmToPx) - targetW;
+                    }
+                    if (bestX < filmLeft)
+                    {
+                        bestX = filmLeft;
+                    }
                 }
                 bestX = Math.Max(0, Math.Min(bestX, scanMat.Width - targetW));
 

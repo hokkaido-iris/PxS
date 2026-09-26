@@ -91,6 +91,7 @@ namespace IrisPxS
             CmbFilmSizeCategory.Items.Add("135 (35mm)");
             CmbFilmSizeCategory.Items.Add("120 (中判)");
             CmbFilmSizeCategory.Items.Add("127 (ベスト判)");
+            CmbFilmSizeCategory.Items.Add("240 (APS)");
             CmbFilmSizeCategory.Items.Add("110 (ポケット)");
             CmbFilmSizeCategory.SelectedIndex = 0; // 135
 
